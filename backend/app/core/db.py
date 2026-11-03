@@ -13,14 +13,16 @@ engine = create_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
 # for more details: https://github.com/fastapi/full-stack-fastapi-template/issues/28
 
 
-def ensure_user(session: Session, *, email: str, password: str, role: UserRole) -> User:
+def ensure_user(
+    session: Session, *, email: str, password: str, role: UserRole, full_name: str
+) -> User:
     """Create the user if missing. Existing users are left untouched, so
     re-running the seed never resets a password or a role changed by an admin.
     """
     user = session.exec(select(User).where(User.email == email)).first()
     if user:
         return user
-    user_in = UserCreate(email=email, password=password, role=role)
+    user_in = UserCreate(email=email, password=password, role=role, full_name=full_name)
     return crud.create_user(session=session, user_create=user_in)
 
 
@@ -38,13 +40,26 @@ def init_db(session: Session) -> None:
         email=settings.FIRST_SUPERUSER,
         password=settings.FIRST_SUPERUSER_PASSWORD,
         role=UserRole.ADMIN,
+        full_name="Administrator",
     )
     if not settings.SEED_DEMO_USERS:
         return
     demo_users = [
-        (settings.SEED_MANAGER_EMAIL, settings.SEED_MANAGER_PASSWORD, UserRole.MANAGER),
-        (settings.SEED_MEMBER_EMAIL, settings.SEED_MEMBER_PASSWORD, UserRole.MEMBER),
+        (
+            settings.SEED_MANAGER_EMAIL,
+            settings.SEED_MANAGER_PASSWORD,
+            UserRole.MANAGER,
+            "Demo Manager",
+        ),
+        (
+            settings.SEED_MEMBER_EMAIL,
+            settings.SEED_MEMBER_PASSWORD,
+            UserRole.MEMBER,
+            "Demo Member",
+        ),
     ]
-    for email, password, role in demo_users:
+    for email, password, role, full_name in demo_users:
         if email and password:
-            ensure_user(session, email=email, password=password, role=role)
+            ensure_user(
+                session, email=email, password=password, role=role, full_name=full_name
+            )
