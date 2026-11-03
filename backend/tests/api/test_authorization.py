@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.core.permissions import UserRole
 from app.core.security import ALGORITHM, create_access_token
 from app.models import User
+from app.utils import generate_password_reset_token
 from tests.utils.item import create_random_item
 from tests.utils.user import create_user_with_role, login_as_new_user
 from tests.utils.utils import random_email
@@ -284,7 +285,16 @@ def _token_for(user: User, *, expires_in: timedelta = timedelta(minutes=5)) -> s
 
 
 @pytest.mark.parametrize(
-    "case", ["garbage", "wrong_signature", "expired", "deleted_user", "inactive_user"]
+    "case",
+    [
+        "garbage",
+        "wrong_signature",
+        "expired",
+        "no_expiry",
+        "password_reset_token",
+        "deleted_user",
+        "inactive_user",
+    ],
 )
 def test_invalid_credentials_are_401(
     client: TestClient, db: Session, case: str
@@ -294,6 +304,8 @@ def test_invalid_credentials_are_401(
         "garbage": "not-a-jwt",
         "wrong_signature": jwt.encode({"sub": str(user.id)}, "other-key", ALGORITHM),
         "expired": _token_for(user, expires_in=timedelta(minutes=-1)),
+        "no_expiry": jwt.encode({"sub": str(user.id)}, settings.SECRET_KEY, ALGORITHM),
+        "password_reset_token": generate_password_reset_token(user.email),
     }.get(case) or _token_for(user)
     if case == "deleted_user":
         db.delete(user)
@@ -321,14 +333,18 @@ def test_denied_attempt_is_logged(
     member, headers = login_as_new_user(client, db, MEMBER)
 
     with caplog.at_level(logging.WARNING, logger="app.api.deps"):
-        client.get(f"{API}/metrics/", headers=headers)
+        client.post(
+            f"{API}/password-recovery-html-content/{member.email}", headers=headers
+        )
 
     [record] = [r for r in caplog.records if r.name == "app.api.deps"]
     assert record.levelno == logging.WARNING
     assert record.__dict__["user_id"] == str(member.id)
     assert record.__dict__["role"] == "member"
-    assert record.__dict__["permission"] == "metrics:view"
-    assert record.__dict__["path"] == f"{API}/metrics/"
+    assert record.__dict__["permission"] == "settings:manage"
+    # The route template is logged, so the email in the URL never reaches the log
+    assert record.__dict__["path"] == f"{API}/password-recovery-html-content/{{email}}"
+    assert member.email not in record.getMessage()
 
 
 def test_metrics_counts_users_by_role(client: TestClient, db: Session) -> None:

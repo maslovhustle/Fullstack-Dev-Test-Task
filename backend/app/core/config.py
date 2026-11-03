@@ -97,7 +97,9 @@ class Settings(BaseSettings):
             self._check_default_secret(
                 "SEED_MANAGER_PASSWORD", self.SEED_MANAGER_PASSWORD
             )
-            self._check_default_secret("SEED_MEMBER_PASSWORD", self.SEED_MEMBER_PASSWORD)
+            self._check_default_secret(
+                "SEED_MEMBER_PASSWORD", self.SEED_MEMBER_PASSWORD
+            )
 
         return self
 

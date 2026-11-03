@@ -52,7 +52,10 @@ def get_current_user(session: SessionDep, token: TokenDep) -> User:
     """
     try:
         payload = jwt.decode(
-            token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]
+            token,
+            settings.SECRET_KEY,
+            algorithms=[security.ALGORITHM],
+            options={"require": ["exp", "sub"]},
         )
         token_data = TokenPayload(**payload)
     except InvalidTokenError, ValidationError:
@@ -68,23 +71,32 @@ def get_current_user(session: SessionDep, token: TokenDep) -> User:
 CurrentUser = Annotated[User, Depends(get_current_user)]
 
 
+def _path_template(request: Request) -> str:
+    """The request path with path parameters replaced by their names
+    (/users/{user_id}), so values such as emails never reach the logs."""
+    names = {str(value): name for name, value in request.path_params.items()}
+    segments = request.url.path.split("/")
+    return "/".join(f"{{{names[s]}}}" if s in names else s for s in segments)
+
+
 def ensure_permission(user: User, permission: Permission, request: Request) -> None:
     """Raise 403 unless the user's role grants `permission`; log every denial."""
     if has_permission(user.role, permission):
         return
+    path = _path_template(request)
     logger.warning(
         "authorization denied user_id=%s role=%s permission=%s method=%s path=%s",
         user.id,
         user.role,
         permission,
         request.method,
-        request.url.path,
+        path,
         extra={
             "user_id": str(user.id),
             "role": str(user.role),
             "permission": str(permission),
             "method": request.method,
-            "path": request.url.path,
+            "path": path,
         },
     )
     raise HTTPException(
