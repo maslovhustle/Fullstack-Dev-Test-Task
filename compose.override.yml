@@ -87,6 +87,10 @@ services:
     environment:
       - FIRST_SUPERUSER=${FIRST_SUPERUSER:?Variable not set}
       - FIRST_SUPERUSER_PASSWORD=${FIRST_SUPERUSER_PASSWORD:?Variable not set}
+      - SEED_MANAGER_EMAIL=${SEED_MANAGER_EMAIL:?Variable not set}
+      - SEED_MANAGER_PASSWORD=${SEED_MANAGER_PASSWORD:?Variable not set}
+      - SEED_MEMBER_EMAIL=${SEED_MEMBER_EMAIL:?Variable not set}
+      - SEED_MEMBER_PASSWORD=${SEED_MEMBER_PASSWORD:?Variable not set}
       - PLAYWRIGHT_BASE_URL=http://backend:8000
       - VITE_API_URL=http://backend:8000
       - MAILPIT_HOST=http://mailpit:8025

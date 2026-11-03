@@ -17,3 +17,7 @@ function getEnvVar(name: string): string {
 
 export const firstSuperuser = getEnvVar("FIRST_SUPERUSER")
 export const firstSuperuserPassword = getEnvVar("FIRST_SUPERUSER_PASSWORD")
+export const seedManager = getEnvVar("SEED_MANAGER_EMAIL")
+export const seedManagerPassword = getEnvVar("SEED_MANAGER_PASSWORD")
+export const seedMember = getEnvVar("SEED_MEMBER_EMAIL")
+export const seedMemberPassword = getEnvVar("SEED_MEMBER_PASSWORD")
