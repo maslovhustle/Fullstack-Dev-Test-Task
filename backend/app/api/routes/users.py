@@ -13,7 +13,7 @@ from app.api.deps import (
     require_permission,
 )
 from app.core.config import settings
-from app.core.permissions import Permission
+from app.core.permissions import Permission, UserRole, has_permission
 from app.core.security import get_password_hash, verify_password
 from app.models import (
     Item,
@@ -48,6 +48,43 @@ def ensure_not_self_lockout(
         raise HTTPException(status_code=403, detail="You cannot change your own role")
     if user_in.is_active is False:
         raise HTTPException(status_code=403, detail="You cannot deactivate yourself")
+
+
+# Roles whose holders can manage users; at least one active such user must remain
+USER_MANAGER_ROLES = [
+    role for role in UserRole if has_permission(role, Permission.USERS_UPDATE)
+]
+
+
+def ensure_a_user_manager_remains(
+    session: SessionDep, target: User, user_in: UserUpdate | None = None
+) -> None:
+    """Refuse to remove the last active user who can manage users.
+
+    The row lock makes concurrent removals (two admins demoting each other)
+    wait for one another, so the second request sees the first one's result.
+    """
+    removes_manager = (
+        target.role in USER_MANAGER_ROLES
+        and target.is_active
+        and (
+            user_in is None
+            or user_in.is_active is False
+            or (user_in.role is not None and user_in.role not in USER_MANAGER_ROLES)
+        )
+    )
+    if not removes_manager:
+        return
+    statement = (
+        select(User.id)
+        .where(col(User.role).in_(USER_MANAGER_ROLES), col(User.is_active))
+        .with_for_update()
+    )
+    if len(session.exec(statement).all()) <= 1:
+        raise HTTPException(
+            status_code=409,
+            detail="At least one active user must be able to manage users",
+        )
 
 
 @router.get(
@@ -234,6 +271,7 @@ def update_user(
             detail="The user with this id does not exist in the system",
         )
     ensure_not_self_lockout(current_user, db_user, user_in)
+    ensure_a_user_manager_remains(session, db_user, user_in)
     if user_in.email:
         existing_user = crud.get_user_by_email(session=session, email=user_in.email)
         if existing_user and existing_user.id != user_id:
@@ -258,6 +296,7 @@ def delete_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     ensure_not_self_lockout(current_user, user)
+    ensure_a_user_manager_remains(session, user)
     statement = delete(Item).where(col(Item.owner_id) == user_id)
     session.exec(statement)
     session.delete(user)

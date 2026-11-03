@@ -6,15 +6,17 @@ the policy that is not reflected in the docs fails here.
 """
 
 import logging
+import threading
 import uuid
 from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from unittest.mock import patch
 
 import jwt
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, col, select
 
 from app.core.config import settings
 from app.core.permissions import UserRole
@@ -191,6 +193,61 @@ def test_admin_cannot_lock_themselves_out(
     assert r.json()["detail"] == detail
     db.refresh(admin)
     assert admin.role == ADMIN and admin.is_active
+
+
+def test_concurrent_demotions_keep_one_user_manager(
+    client: TestClient, db: Session
+) -> None:
+    """Two admins demoting each other at once must not leave zero admins."""
+    admin_a, headers_a = login_as_new_user(client, db, ADMIN)
+    admin_b, headers_b = login_as_new_user(client, db, ADMIN)
+    id_a, id_b = admin_a.id, admin_b.id
+    others = db.exec(
+        select(User).where(
+            User.role == ADMIN,
+            col(User.is_active),
+            col(User.id).not_in([id_a, id_b]),
+        )
+    ).all()
+    for user in others:
+        user.is_active = False
+    db.add_all(others)
+    db.commit()
+    barrier = threading.Barrier(2)
+
+    def demote(headers: dict[str, str], target_id: uuid.UUID) -> int:
+        barrier.wait()
+        url = f"{API}/users/{target_id}"
+        return client.patch(url, headers=headers, json={"role": "member"}).status_code
+
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            statuses = sorted(pool.map(demote, [headers_a, headers_b], [id_b, id_a]))
+    finally:
+        for user in others:
+            user.is_active = True
+        db.add_all(others)
+        db.commit()
+
+    assert statuses[0] == 200 and statuses[1] in (403, 409)
+    db.refresh(admin_a)
+    db.refresh(admin_b)
+    assert [admin_a.role, admin_b.role].count(ADMIN) == 1
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [("/users/me", {"email": None}), ("/users/{id}", {"role": None})],
+)
+def test_explicit_null_is_rejected_not_a_server_error(
+    client: TestClient, db: Session, path: str, body: dict[str, None]
+) -> None:
+    admin, headers = login_as_new_user(client, db, ADMIN)
+    target, _ = create_user_with_role(db, MEMBER)
+
+    r = client.patch(f"{API}{path.format(id=target.id)}", headers=headers, json=body)
+
+    assert r.status_code == 422
 
 
 def test_admin_can_change_another_users_role(client: TestClient, db: Session) -> None:

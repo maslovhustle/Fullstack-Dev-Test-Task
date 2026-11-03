@@ -2,7 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
-from pydantic import EmailStr, computed_field
+from pydantic import EmailStr, computed_field, field_validator
 from sqlmodel import Field, Relationship, SQLModel
 from sqlmodel._compat import SQLModelConfig
 
@@ -35,6 +35,12 @@ class UserRegister(SQLModel):
     full_name: str | None = Field(default=None, max_length=255)
 
 
+def _reject_null(value: object) -> object:
+    if value is None:
+        raise ValueError("may be omitted, but not null")
+    return value
+
+
 # Properties to receive via API on update, all are optional
 class UserUpdate(SQLModel):
     email: EmailStr | None = Field(default=None, max_length=255)
@@ -43,12 +49,16 @@ class UserUpdate(SQLModel):
     full_name: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, min_length=8, max_length=128)
 
+    _not_null = field_validator("email", "is_active", "role", "password")(_reject_null)
+
 
 class UserUpdateMe(SQLModel):
     model_config = SQLModelConfig(extra="forbid")
 
     full_name: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = Field(default=None, max_length=255)
+
+    _not_null = field_validator("email")(_reject_null)
 
 
 class UpdatePassword(SQLModel):
