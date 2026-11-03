@@ -3,7 +3,7 @@
 import uuid
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from pydantic import ValidationError
 
 from app.api.routes.users import ensure_not_self_lockout
@@ -22,6 +22,9 @@ SELF_SERVICE = {
     Permission.PROFILE_DELETE,
     Permission.ITEMS_USE,
 }
+
+
+REQUEST = Request({"type": "http", "method": "PATCH", "path": "/", "headers": []})
 
 
 def _user(role: UserRole) -> User:
@@ -109,7 +112,7 @@ def test_self_lockout_is_forbidden(update: UserUpdate | None) -> None:
     admin = _user(UserRole.ADMIN)
 
     with pytest.raises(HTTPException) as exc:
-        ensure_not_self_lockout(admin, admin, update)
+        ensure_not_self_lockout(admin, admin, REQUEST, update)
 
     assert exc.value.status_code == 403
 
@@ -126,11 +129,11 @@ def test_self_lockout_is_forbidden(update: UserUpdate | None) -> None:
 def test_harmless_self_updates_are_allowed(update: UserUpdate) -> None:
     admin = _user(UserRole.ADMIN)
 
-    ensure_not_self_lockout(admin, admin, update)
+    ensure_not_self_lockout(admin, admin, REQUEST, update)
 
 
 def test_changes_to_other_users_are_not_lockout() -> None:
     admin, other = _user(UserRole.ADMIN), _user(UserRole.ADMIN)
 
-    ensure_not_self_lockout(admin, other, UserUpdate(role=UserRole.MEMBER))
-    ensure_not_self_lockout(admin, other, None)
+    ensure_not_self_lockout(admin, other, REQUEST, UserUpdate(role=UserRole.MEMBER))
+    ensure_not_self_lockout(admin, other, REQUEST, None)

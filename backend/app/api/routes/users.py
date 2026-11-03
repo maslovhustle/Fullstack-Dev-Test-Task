@@ -1,7 +1,7 @@
 import uuid
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlmodel import col, delete, func, select
 
 from app import crud
@@ -10,6 +10,7 @@ from app.api.deps import (
     LimitParam,
     SessionDep,
     SkipParam,
+    denied,
     require_permission,
 )
 from app.core.config import settings
@@ -34,7 +35,10 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 
 def ensure_not_self_lockout(
-    current_user: User, target: User, user_in: UserUpdate | None = None
+    current_user: User,
+    target: User,
+    request: Request,
+    user_in: UserUpdate | None = None,
 ) -> None:
     """Forbid changing your own role, deactivating or deleting yourself via the
     admin endpoints. Whoever manages users therefore always keeps that power,
@@ -43,11 +47,11 @@ def ensure_not_self_lockout(
     if target.id != current_user.id:
         return
     if user_in is None:
-        raise HTTPException(status_code=403, detail="You cannot delete yourself")
+        raise denied(current_user, request, "You cannot delete yourself")
     if user_in.role is not None and user_in.role != current_user.role:
-        raise HTTPException(status_code=403, detail="You cannot change your own role")
+        raise denied(current_user, request, "You cannot change your own role")
     if user_in.is_active is False:
-        raise HTTPException(status_code=403, detail="You cannot deactivate yourself")
+        raise denied(current_user, request, "You cannot deactivate yourself")
 
 
 # Roles whose holders can manage users; at least one active such user must remain
@@ -57,7 +61,11 @@ USER_MANAGER_ROLES = [
 
 
 def ensure_a_user_manager_remains(
-    session: SessionDep, target: User, user_in: UserUpdate | None = None
+    session: SessionDep,
+    current_user: User,
+    target: User,
+    request: Request,
+    user_in: UserUpdate | None = None,
 ) -> None:
     """Refuse to remove the last active user who can manage users.
 
@@ -81,9 +89,11 @@ def ensure_a_user_manager_remains(
         .with_for_update()
     )
     if len(session.exec(statement).all()) <= 1:
-        raise HTTPException(
+        raise denied(
+            current_user,
+            request,
+            "At least one active user must be able to manage users",
             status_code=409,
-            detail="At least one active user must be able to manage users",
         )
 
 
@@ -259,6 +269,7 @@ def update_user(
     current_user: CurrentUser,
     user_id: uuid.UUID,
     user_in: UserUpdate,
+    request: Request,
 ) -> Any:
     """
     Update a user.
@@ -270,8 +281,8 @@ def update_user(
             status_code=404,
             detail="The user with this id does not exist in the system",
         )
-    ensure_not_self_lockout(current_user, db_user, user_in)
-    ensure_a_user_manager_remains(session, db_user, user_in)
+    ensure_not_self_lockout(current_user, db_user, request, user_in)
+    ensure_a_user_manager_remains(session, current_user, db_user, request, user_in)
     if user_in.email:
         existing_user = crud.get_user_by_email(session=session, email=user_in.email)
         if existing_user and existing_user.id != user_id:
@@ -287,7 +298,10 @@ def update_user(
     "/{user_id}", dependencies=[Depends(require_permission(Permission.USERS_DELETE))]
 )
 def delete_user(
-    session: SessionDep, current_user: CurrentUser, user_id: uuid.UUID
+    session: SessionDep,
+    current_user: CurrentUser,
+    user_id: uuid.UUID,
+    request: Request,
 ) -> Message:
     """
     Delete a user.
@@ -295,8 +309,8 @@ def delete_user(
     user = session.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    ensure_not_self_lockout(current_user, user)
-    ensure_a_user_manager_remains(session, user)
+    ensure_not_self_lockout(current_user, user, request)
+    ensure_a_user_manager_remains(session, current_user, user, request)
     statement = delete(Item).where(col(Item.owner_id) == user_id)
     session.exec(statement)
     session.delete(user)

@@ -79,30 +79,37 @@ def _path_template(request: Request) -> str:
     return "/".join(f"{{{names[s]}}}" if s in names else s for s in segments)
 
 
-def ensure_permission(user: User, permission: Permission, request: Request) -> None:
-    """Raise 403 unless the user's role grants `permission`; log every denial."""
-    if has_permission(user.role, permission):
-        return
+def denied(
+    user: User,
+    request: Request,
+    reason: str,
+    *,
+    status_code: int = status.HTTP_403_FORBIDDEN,
+) -> HTTPException:
+    """Log a refused action and build the error to raise for it."""
     path = _path_template(request)
     logger.warning(
-        "authorization denied user_id=%s role=%s permission=%s method=%s path=%s",
+        "authorization denied user_id=%s role=%s reason=%r method=%s path=%s",
         user.id,
         user.role,
-        permission,
+        reason,
         request.method,
         path,
         extra={
             "user_id": str(user.id),
             "role": str(user.role),
-            "permission": str(permission),
+            "reason": reason,
             "method": request.method,
             "path": path,
         },
     )
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail=f"Missing permission: {permission}",
-    )
+    return HTTPException(status_code=status_code, detail=reason)
+
+
+def ensure_permission(user: User, permission: Permission, request: Request) -> None:
+    """Raise 403 unless the user's role grants `permission`."""
+    if not has_permission(user.role, permission):
+        raise denied(user, request, f"Missing permission: {permission}")
 
 
 @dataclass(frozen=True)

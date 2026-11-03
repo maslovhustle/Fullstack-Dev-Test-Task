@@ -458,10 +458,24 @@ def test_denied_attempt_is_logged(
     assert record.levelno == logging.WARNING
     assert record.__dict__["user_id"] == str(member.id)
     assert record.__dict__["role"] == "member"
-    assert record.__dict__["permission"] == "settings:manage"
+    assert record.__dict__["reason"] == "Missing permission: settings:manage"
     # The route template is logged, so the email in the URL never reaches the log
     assert record.__dict__["path"] == f"{API}/password-recovery-html-content/{{email}}"
     assert member.email not in record.getMessage()
+
+
+def test_refused_self_lockout_is_logged(
+    client: TestClient, db: Session, caplog: pytest.LogCaptureFixture
+) -> None:
+    admin, headers = login_as_new_user(client, db, ADMIN)
+
+    with caplog.at_level(logging.WARNING, logger="app.api.deps"):
+        client.delete(f"{API}/users/{admin.id}", headers=headers)
+
+    [record] = [r for r in caplog.records if r.name == "app.api.deps"]
+    assert record.__dict__["user_id"] == str(admin.id)
+    assert record.__dict__["reason"] == "You cannot delete yourself"
+    assert record.__dict__["path"] == f"{API}/users/{{user_id}}"
 
 
 def test_metrics_counts_users_by_role(client: TestClient, db: Session) -> None:
