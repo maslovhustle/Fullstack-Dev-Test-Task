@@ -123,6 +123,30 @@ export type Message = {
 };
 
 /**
+ * MetricsPublic
+ */
+export type MetricsPublic = {
+    /**
+     * Total Users
+     */
+    total_users: number;
+    /**
+     * Active Users
+     */
+    active_users: number;
+    /**
+     * Users By Role
+     */
+    users_by_role: {
+        [key in UserRole]?: number;
+    };
+    /**
+     * Total Items
+     */
+    total_items: number;
+};
+
+/**
  * NewPassword
  */
 export type NewPassword = {
@@ -135,6 +159,28 @@ export type NewPassword = {
      */
     new_password: string;
 };
+
+/**
+ * Permission
+ */
+export const Permission = {
+    PROFILE_READ: 'profile:read',
+    PROFILE_UPDATE: 'profile:update',
+    PROFILE_DELETE: 'profile:delete',
+    ITEMS_USE: 'items:use',
+    ITEMS_MANAGE_ALL: 'items:manage_all',
+    USERS_LIST: 'users:list',
+    USERS_CREATE: 'users:create',
+    USERS_UPDATE: 'users:update',
+    USERS_DELETE: 'users:delete',
+    METRICS_VIEW: 'metrics:view',
+    SETTINGS_MANAGE: 'settings:manage'
+} as const;
+
+/**
+ * Permission
+ */
+export type Permission = typeof Permission[keyof typeof Permission];
 
 /**
  * PrivateUserCreate
@@ -199,10 +245,6 @@ export type UserCreate = {
      */
     is_active?: boolean;
     /**
-     * Is Superuser
-     */
-    is_superuser?: boolean;
-    /**
      * Full Name
      */
     full_name?: string | null;
@@ -210,6 +252,38 @@ export type UserCreate = {
      * Password
      */
     password: string;
+    role?: UserRole;
+};
+
+/**
+ * UserMePublic
+ */
+export type UserMePublic = {
+    /**
+     * Email
+     */
+    email: string;
+    /**
+     * Is Active
+     */
+    is_active?: boolean;
+    /**
+     * Full Name
+     */
+    full_name?: string | null;
+    /**
+     * Id
+     */
+    id: string;
+    role: UserRole;
+    /**
+     * Created At
+     */
+    created_at?: string | null;
+    /**
+     * Permissions
+     */
+    readonly permissions: Array<Permission>;
 };
 
 /**
@@ -225,10 +299,6 @@ export type UserPublic = {
      */
     is_active?: boolean;
     /**
-     * Is Superuser
-     */
-    is_superuser?: boolean;
-    /**
      * Full Name
      */
     full_name?: string | null;
@@ -236,6 +306,7 @@ export type UserPublic = {
      * Id
      */
     id: string;
+    role: UserRole;
     /**
      * Created At
      */
@@ -261,6 +332,20 @@ export type UserRegister = {
 };
 
 /**
+ * UserRole
+ */
+export const UserRole = {
+    ADMIN: 'admin',
+    MANAGER: 'manager',
+    MEMBER: 'member'
+} as const;
+
+/**
+ * UserRole
+ */
+export type UserRole = typeof UserRole[keyof typeof UserRole];
+
+/**
  * UserUpdate
  */
 export type UserUpdate = {
@@ -272,10 +357,7 @@ export type UserUpdate = {
      * Is Active
      */
     is_active?: boolean | null;
-    /**
-     * Is Superuser
-     */
-    is_superuser?: boolean | null;
+    role?: UserRole | null;
     /**
      * Full Name
      */
@@ -342,6 +424,33 @@ export type ValidationError = {
     };
 };
 
+/**
+ * UserMePublic
+ */
+export type UserMePublicWritable = {
+    /**
+     * Email
+     */
+    email: string;
+    /**
+     * Is Active
+     */
+    is_active?: boolean;
+    /**
+     * Full Name
+     */
+    full_name?: string | null;
+    /**
+     * Id
+     */
+    id: string;
+    role: UserRole;
+    /**
+     * Created At
+     */
+    created_at?: string | null;
+};
+
 export type loginLoginAccessTokenData = {
     body: Body_login_login_access_token;
     path?: never;
@@ -378,7 +487,7 @@ export type loginTestTokenResponses = {
     /**
      * Successful Response
      */
-    200: UserPublic;
+    200: UserMePublic;
 };
 
 export type loginTestTokenResponse = loginTestTokenResponses[keyof loginTestTokenResponses];
@@ -554,7 +663,7 @@ export type usersReadUserMeResponses = {
     /**
      * Successful Response
      */
-    200: UserPublic;
+    200: UserMePublic;
 };
 
 export type usersReadUserMeResponse = usersReadUserMeResponses[keyof usersReadUserMeResponses];
@@ -579,7 +688,7 @@ export type usersUpdateUserMeResponses = {
     /**
      * Successful Response
      */
-    200: UserPublic;
+    200: UserMePublic;
 };
 
 export type usersUpdateUserMeResponse = usersUpdateUserMeResponses[keyof usersUpdateUserMeResponses];
@@ -920,6 +1029,22 @@ export type itemsUpdateItemResponses = {
 };
 
 export type itemsUpdateItemResponse = itemsUpdateItemResponses[keyof itemsUpdateItemResponses];
+
+export type metricsReadMetricsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/v1/metrics/';
+};
+
+export type metricsReadMetricsResponses = {
+    /**
+     * Successful Response
+     */
+    200: MetricsPublic;
+};
+
+export type metricsReadMetricsResponse = metricsReadMetricsResponses[keyof metricsReadMetricsResponses];
 
 export type privateCreateUserData = {
     body: PrivateUserCreate;
