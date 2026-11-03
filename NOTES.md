@@ -76,6 +76,38 @@ What I want a reviewer to know beyond the README and the ADRs.
   two CI workflows (security, frontend), frontend unit tests and a Playwright
   RBAC suite. The RBAC core itself is about 30 files.
 
+## Security review
+
+An independent review (live probes plus code reading), together with pip-audit, `bun audit`,
+gitleaks, zizmor, Bandit and Semgrep, found one High, one Medium and three Low issues
+introduced by this branch. All are fixed and covered by tests:
+
+- **High:** the template's deploy workflow would have seeded the demo accounts (default password)
+  into production, because it reads the committed `.env`. Demo seeding is now opt-in
+  (`SEED_DEMO_USERS`, set only by the local compose override).
+- **Medium:** two admins demoting each other concurrently could leave zero admins. A row-locked
+  "at least one user manager remains" check now serialises them (409).
+- **Low:** an explicit `null` on a required field returned 500 (now 422); emails in URL paths
+  were written to the denial log (only the route template is logged now); production compose
+  deploys failed on the forwarded seed passwords.
+- **Also hardened:** JWTs must carry `exp` and a UUID `sub`. Before, a password-reset token gave a
+  500 and a token without `exp` was accepted. The admin password-recovery HTML preview sent an
+  invalid header name; pip-audit is pinned in CI.
+
+Known residuals, all from the template and out of scope here:
+
+- Password-reset tokens are not single-use, and no token is invalidated on password change.
+- Logging in with the correct password to a deactivated account returns "Inactive user", which
+  confirms the credentials are valid.
+- An email change via `/users/me` needs no re-verification. An admin can change their own
+  password through `PATCH /users/{id}` without the current one.
+- `role` has no database CHECK constraint (a deliberate trade-off, see above). A row with an
+  out-of-enum role written by raw SQL would fail to load.
+- Unauthenticated requests with malformed JSON get 422 before 401 (FastAPI parses the body
+  before running dependencies). Authenticated callers get 403 before 422.
+- The AI review bot reads PR content. Prompt injection could steer its comments, but it can only
+  comment, and it runs only for same-repository PRs.
+
 ## With more time
 
 - Move the token to an httpOnly cookie, add refresh and revocation (a token

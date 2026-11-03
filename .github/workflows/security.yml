@@ -26,7 +26,7 @@ jobs:
       - name: Audit locked Python dependencies (pip-audit)
         run: |
           uv export --frozen --all-groups --no-hashes --no-emit-workspace > requirements.txt
-          uvx pip-audit --strict --no-deps --disable-pip -r requirements.txt
+          uvx pip-audit==2.10.1 --strict --no-deps --disable-pip -r requirements.txt
 
   js-dependencies:
     runs-on: ubuntu-latest
