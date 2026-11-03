@@ -62,8 +62,14 @@ class Settings(BaseSettings):
         return bool(self.SMTP_HOST and self.EMAILS_FROM_EMAIL)
 
     EMAIL_TEST_USER: EmailStr = "test@example.com"
+    # Seeded as the first admin by scripts/prestart.sh
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
+    # Optional demo accounts seeded alongside the admin (leave unset to skip)
+    SEED_MANAGER_EMAIL: EmailStr | None = None
+    SEED_MANAGER_PASSWORD: str | None = None
+    SEED_MEMBER_EMAIL: EmailStr | None = None
+    SEED_MEMBER_PASSWORD: str | None = None
 
     def _check_default_secret(self, var_name: str, value: str | None) -> None:
         if value == "changethis":
@@ -84,6 +90,8 @@ class Settings(BaseSettings):
         self._check_default_secret(
             "FIRST_SUPERUSER_PASSWORD", self.FIRST_SUPERUSER_PASSWORD
         )
+        self._check_default_secret("SEED_MANAGER_PASSWORD", self.SEED_MANAGER_PASSWORD)
+        self._check_default_secret("SEED_MEMBER_PASSWORD", self.SEED_MEMBER_PASSWORD)
 
         return self
 

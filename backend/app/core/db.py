@@ -13,6 +13,17 @@ engine = create_engine(str(settings.DATABASE_URL), pool_pre_ping=True)
 # for more details: https://github.com/fastapi/full-stack-fastapi-template/issues/28
 
 
+def ensure_user(session: Session, *, email: str, password: str, role: UserRole) -> User:
+    """Create the user if missing. Existing users are left untouched, so
+    re-running the seed never resets a password or a role changed by an admin.
+    """
+    user = session.exec(select(User).where(User.email == email)).first()
+    if user:
+        return user
+    user_in = UserCreate(email=email, password=password, role=role)
+    return crud.create_user(session=session, user_create=user_in)
+
+
 def init_db(session: Session) -> None:
     # Tables should be created with Alembic migrations
     # But if you don't want to use migrations, create
@@ -22,13 +33,16 @@ def init_db(session: Session) -> None:
     # This works because the models are already imported and registered from app.models
     # SQLModel.metadata.create_all(engine)
 
-    user = session.exec(
-        select(User).where(User.email == settings.FIRST_SUPERUSER)
-    ).first()
-    if not user:
-        user_in = UserCreate(
-            email=settings.FIRST_SUPERUSER,
-            password=settings.FIRST_SUPERUSER_PASSWORD,
-            role=UserRole.ADMIN,
-        )
-        user = crud.create_user(session=session, user_create=user_in)
+    ensure_user(
+        session,
+        email=settings.FIRST_SUPERUSER,
+        password=settings.FIRST_SUPERUSER_PASSWORD,
+        role=UserRole.ADMIN,
+    )
+    demo_users = [
+        (settings.SEED_MANAGER_EMAIL, settings.SEED_MANAGER_PASSWORD, UserRole.MANAGER),
+        (settings.SEED_MEMBER_EMAIL, settings.SEED_MEMBER_PASSWORD, UserRole.MEMBER),
+    ]
+    for email, password, role in demo_users:
+        if email and password:
+            ensure_user(session, email=email, password=password, role=role)

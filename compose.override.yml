@@ -38,11 +38,11 @@ services:
       context: .
       dockerfile: backend/Dockerfile
     # command: sleep infinity  # Infinite loop to keep container alive doing nothing
+    # Apply migrations and seed users (idempotent) before starting the dev server
     command:
-      - fastapi
-      - dev
-      - --host
-      - "0.0.0.0"
+      - bash
+      - -c
+      - bash scripts/prestart.sh && exec fastapi dev --host 0.0.0.0
     develop:
       watch:
         - path: ./backend
