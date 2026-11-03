@@ -86,6 +86,7 @@ with data.
 | Frontend lint / types | biome; `tsc` for app, unit and e2e code | `cd frontend && bun run lint && bun run typecheck` |
 | End-to-end | Playwright: login, items, settings, admin, plus RBAC flows per role (`tests/rbac.spec.ts`) | `cd frontend && bunx playwright test` |
 | Security (CI) | pip-audit, `bun audit` (production deps, high and above), gitleaks, CodeQL | `.github/workflows/security.yml` |
+| AI PR review (CI) | Claude reviews each pull request for authorization gaps, security issues and bugs, with inline comments | `.github/workflows/claude-pr-review.yml` (needs the `ANTHROPIC_API_KEY` repository secret; skipped without it) |
 
 Backend tests need the `db` service. The template's test teardown **deletes every user and item**
 in the target database, which includes the seeded accounts. Either re-run the seed afterwards, or
