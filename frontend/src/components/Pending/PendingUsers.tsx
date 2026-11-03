@@ -12,8 +12,7 @@ const PendingUsers = () => (
   <Table>
     <TableHeader>
       <TableRow>
-        <TableHead>Full Name</TableHead>
-        <TableHead>Email</TableHead>
+        <TableHead>User</TableHead>
         <TableHead>Role</TableHead>
         <TableHead>Status</TableHead>
         <TableHead>
@@ -25,10 +24,10 @@ const PendingUsers = () => (
       {Array.from({ length: 5 }).map((_, index) => (
         <TableRow key={index}>
           <TableCell>
-            <Skeleton className="h-4 w-32" />
-          </TableCell>
-          <TableCell>
-            <Skeleton className="h-4 w-40" />
+            <div className="flex flex-col gap-1.5">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-4 w-40" />
+            </div>
           </TableCell>
           <TableCell>
             <Skeleton className="h-5 w-20 rounded-full" />

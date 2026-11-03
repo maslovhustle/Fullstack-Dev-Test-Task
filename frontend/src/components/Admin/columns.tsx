@@ -16,31 +16,31 @@ export type UserTableData = UserPublic & {
 export const columns: ColumnDef<DataTableFeatures, UserTableData>[] = [
   {
     accessorKey: "full_name",
-    header: "Full Name",
+    header: "User",
     cell: ({ row }) => {
-      const fullName = row.original.full_name
+      const { full_name: fullName, email, isCurrentUser } = row.original
       return (
-        <div className="flex items-center gap-2">
-          <span
-            className={cn("font-medium", !fullName && "text-muted-foreground")}
-          >
-            {fullName || "N/A"}
-          </span>
-          {row.original.isCurrentUser && (
-            <Badge variant="outline" className="text-xs">
-              You
-            </Badge>
-          )}
+        // A fixed width on small screens wraps long values, keeping the role in view.
+        <div className="flex flex-col gap-0.5 max-sm:w-48 max-sm:whitespace-normal max-sm:wrap-anywhere">
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "font-medium",
+                !fullName && "text-muted-foreground",
+              )}
+            >
+              {fullName || "N/A"}
+            </span>
+            {isCurrentUser && (
+              <Badge variant="outline" className="text-xs">
+                You
+              </Badge>
+            )}
+          </div>
+          <span className="text-muted-foreground">{email}</span>
         </div>
       )
     },
-  },
-  {
-    accessorKey: "email",
-    header: "Email",
-    cell: ({ row }) => (
-      <span className="text-muted-foreground">{row.original.email}</span>
-    ),
   },
   {
     accessorKey: "role",

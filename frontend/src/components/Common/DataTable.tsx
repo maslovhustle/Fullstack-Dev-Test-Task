@@ -2,6 +2,8 @@ import {
   type ColumnDef,
   createPaginatedRowModel,
   flexRender,
+  functionalUpdate,
+  type PaginationState,
   type RowData,
   rowPaginationFeature,
   tableFeatures,
@@ -38,20 +40,45 @@ const dataTableFeatures = tableFeatures({
 
 export type DataTableFeatures = typeof dataTableFeatures
 
+/**
+ * Opt-in server-side pagination: `data` is then only the current page,
+ * `rowCount` the total across all pages, and the caller owns the page state.
+ */
+export interface ServerPagination {
+  state: PaginationState
+  rowCount: number
+  onChange: (pagination: PaginationState) => void
+}
+
 interface DataTableProps<TData extends RowData> {
   columns: ColumnDef<DataTableFeatures, TData>[]
   data: TData[]
+  serverPagination?: ServerPagination
 }
 
 export function DataTable<TData extends RowData>({
   columns,
   data,
+  serverPagination,
 }: DataTableProps<TData>) {
   const table = useTable({
     features: dataTableFeatures,
     data,
     columns,
+    ...(serverPagination && {
+      manualPagination: true,
+      rowCount: serverPagination.rowCount,
+      state: { pagination: serverPagination.state },
+      onPaginationChange: (updater) =>
+        serverPagination.onChange(
+          functionalUpdate(updater, serverPagination.state),
+        ),
+    }),
   })
+  // Read controlled state from props: the table store only syncs it after render.
+  const { pageIndex, pageSize } =
+    serverPagination?.state ?? table.state.pagination
+  const rowCount = table.getRowCount()
 
   return (
     <div className="flex flex-col gap-4">
@@ -102,33 +129,24 @@ export function DataTable<TData extends RowData>({
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 border-t bg-muted/20">
           <div className="flex flex-col sm:flex-row sm:items-center gap-4">
             <div className="text-sm text-muted-foreground">
-              Showing{" "}
-              {table.state.pagination.pageIndex *
-                table.state.pagination.pageSize +
-                1}{" "}
-              to{" "}
-              {Math.min(
-                (table.state.pagination.pageIndex + 1) *
-                  table.state.pagination.pageSize,
-                data.length,
-              )}{" "}
-              of{" "}
-              <span className="font-medium text-foreground">{data.length}</span>{" "}
+              Showing {pageIndex * pageSize + 1} to{" "}
+              {Math.min((pageIndex + 1) * pageSize, rowCount)} of{" "}
+              <span className="font-medium text-foreground">{rowCount}</span>{" "}
               entries
             </div>
             <div className="flex items-center gap-x-2">
               <p className="text-sm text-muted-foreground">Rows per page</p>
               <Select
-                value={`${table.state.pagination.pageSize}`}
+                value={`${pageSize}`}
                 onValueChange={(value) => {
                   table.setPageSize(Number(value))
                 }}
               >
                 <SelectTrigger className="h-8 w-[70px]">
-                  <SelectValue placeholder={table.state.pagination.pageSize} />
+                  <SelectValue placeholder={pageSize} />
                 </SelectTrigger>
                 <SelectContent side="top">
-                  {[5, 10, 25, 50].map((pageSize) => (
+                  {[5, 10, 25, 50, 100].map((pageSize) => (
                     <SelectItem key={pageSize} value={`${pageSize}`}>
                       {pageSize}
                     </SelectItem>
@@ -142,7 +160,7 @@ export function DataTable<TData extends RowData>({
             <div className="flex items-center gap-x-1 text-sm text-muted-foreground">
               <span>Page</span>
               <span className="font-medium text-foreground">
-                {table.state.pagination.pageIndex + 1}
+                {pageIndex + 1}
               </span>
               <span>of</span>
               <span className="font-medium text-foreground">

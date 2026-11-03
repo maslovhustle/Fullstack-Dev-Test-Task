@@ -1,11 +1,32 @@
-import { expect, test } from "@playwright/test"
+import { type APIRequestContext, expect, test } from "@playwright/test"
 import { firstSuperuser, firstSuperuserPassword } from "./config.ts"
 import { createUser } from "./utils/privateApi"
 import { randomEmail, randomPassword } from "./utils/random"
 import { logInUser } from "./utils/user"
 
+const api = `${process.env.VITE_API_URL}/api/v1`
+
+async function logInToApi(request: APIRequestContext) {
+  const login = await request.post(`${api}/login/access-token`, {
+    form: { username: firstSuperuser, password: firstSuperuserPassword },
+  })
+  return { Authorization: `Bearer ${(await login.json()).access_token}` }
+}
+
+async function fetchUserCount(
+  request: APIRequestContext,
+  headers: Record<string, string>,
+): Promise<number> {
+  const users = await request.get(`${api}/users/`, {
+    headers,
+    params: { limit: 1 },
+  })
+  return (await users.json()).count
+}
+
 test("Admin page is accessible and shows correct title", async ({ page }) => {
   await page.goto("/admin")
+  await expect(page).toHaveTitle("Users - FastAPI Template")
   await expect(page.getByRole("heading", { name: "Users" })).toBeVisible()
   await expect(
     page.getByText("Manage user accounts and permissions"),
@@ -225,6 +246,65 @@ test.describe("Admin user management", () => {
     await page.getByPlaceholder("Password").last().blur()
 
     await expect(page.getByText("The passwords don't match")).toBeVisible()
+  })
+})
+
+test.describe("Users pagination", () => {
+  test("Pages through users on the server", async ({ page, request }) => {
+    const headers = await logInToApi(request)
+    const pageSize = 10
+    const missingUsers = pageSize + 1 - (await fetchUserCount(request, headers))
+    for (let i = 0; i < missingUsers; i++) {
+      await createUser({ email: randomEmail(), password: randomPassword() })
+    }
+
+    await page.goto("/admin")
+    await expect(page.getByText(/Showing 1 to \d+ of/)).toBeVisible()
+    const rows = page.getByRole("table").getByRole("row")
+    const firstPage = await rows.allTextContents()
+
+    await page.getByRole("button", { name: "Go to next page" }).click()
+
+    await expect(page).toHaveURL(/page=2/)
+    await expect.poll(() => rows.allTextContents()).not.toEqual(firstPage)
+    const summary = page.getByText(/Showing 11 to \d+ of/)
+    await expect(summary).toBeVisible()
+
+    // Parallel tests change the total, so re-read both sides until they agree.
+    await expect(async () => {
+      await page.reload()
+      await expect(summary).toBeVisible()
+      const count = await fetchUserCount(request, headers)
+      expect(await summary.textContent()).toContain(`of ${count} entries`)
+    }).toPass()
+  })
+
+  test("A page past the end moves to the last page", async ({ page }) => {
+    await page.goto("/admin?page=9999")
+
+    await expect(page).not.toHaveURL(/page=9999/)
+    await expect(page.getByRole("row").nth(1)).toBeVisible()
+    await expect(page.getByText("No results found")).toHaveCount(0)
+  })
+})
+
+test.describe("Users table on mobile", () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  test("Keeps the role in view next to a long email", async ({ page }) => {
+    const email = `a_rather_long_address_for_a_phone_${randomEmail()}`
+    await createUser({ email, password: randomPassword() })
+
+    await page.goto("/admin")
+
+    const userRow = page.getByRole("row").filter({ hasText: email })
+    await expect(userRow.getByText("Member", { exact: true })).toBeInViewport({
+      ratio: 1,
+    })
+
+    // The role must not stay in view by squeezing the user column.
+    const emailBox = await userRow.getByText(email).boundingBox()
+    expect(emailBox?.width).toBeGreaterThanOrEqual(192)
   })
 })
 

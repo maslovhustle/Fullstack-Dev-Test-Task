@@ -24,7 +24,7 @@ const navItems: Item[] = [
   },
   {
     icon: Users,
-    title: "Admin",
+    title: "Users",
     path: "/admin",
     permission: Permission.USERS_LIST,
   },

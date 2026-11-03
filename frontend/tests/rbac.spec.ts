@@ -26,9 +26,9 @@ test.describe("Member", () => {
     await logInUser(page, seedMember, seedMemberPassword)
   })
 
-  test("Does not see admin, metrics or system navigation", async ({ page }) => {
+  test("Does not see users, metrics or system navigation", async ({ page }) => {
     await expect(navLink(page, "Items")).toBeVisible()
-    await expect(navLink(page, "Admin")).toHaveCount(0)
+    await expect(navLink(page, "Users")).toHaveCount(0)
     await expect(navLink(page, "Metrics")).toHaveCount(0)
     await expect(navLink(page, "System")).toHaveCount(0)
   })
@@ -61,8 +61,9 @@ test.describe("Manager", () => {
   })
 
   test("Can list users but not manage them", async ({ page }) => {
-    await page.goto("/admin")
+    await navLink(page, "Users").click()
 
+    await expect(page).toHaveURL("/admin")
     await expect(page.getByRole("heading", { name: "Users" })).toBeVisible()
     await expect(page.getByText("View user accounts")).toBeVisible()
     await expect(page.getByRole("row").nth(1)).toBeVisible()
@@ -121,7 +122,7 @@ test("A manager demoted mid-session sees access denied but stays logged in", asy
   await expect(page.getByTestId("access-denied")).toBeVisible()
   await expectStillLoggedIn(page)
   await expect(navLink(page, "Metrics")).toHaveCount(0)
-  await expect(navLink(page, "Admin")).toHaveCount(0)
+  await expect(navLink(page, "Users")).toHaveCount(0)
 })
 
 test.describe("Admin", () => {
@@ -129,8 +130,8 @@ test.describe("Admin", () => {
     await logInUser(page, firstSuperuser, firstSuperuserPassword)
   })
 
-  test("Sees admin, metrics and system navigation", async ({ page }) => {
-    await expect(navLink(page, "Admin")).toBeVisible()
+  test("Sees users, metrics and system navigation", async ({ page }) => {
+    await expect(navLink(page, "Users")).toBeVisible()
     await expect(navLink(page, "Metrics")).toBeVisible()
     await expect(navLink(page, "System")).toBeVisible()
   })
