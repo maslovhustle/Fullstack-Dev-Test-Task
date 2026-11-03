@@ -2,11 +2,11 @@ import uuid
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
-from pydantic import EmailStr
+from pydantic import EmailStr, computed_field
 from sqlmodel import Field, Relationship, SQLModel
 from sqlmodel._compat import SQLModelConfig
 
-from app.core.permissions import UserRole
+from app.core.permissions import Permission, UserRole, permissions_for
 
 
 def get_datetime_utc() -> datetime:
@@ -84,6 +84,15 @@ class UserPublic(UserBase):
     created_at: datetime | None = None
 
 
+# The current user, plus what they may do: the frontend renders from
+# `permissions` and never maps roles to capabilities itself.
+class UserMePublic(UserPublic):
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def permissions(self) -> list[Permission]:
+        return sorted(permissions_for(self.role))
+
+
 class UsersPublic(SQLModel):
     data: list[UserPublic]
     count: int
@@ -126,6 +135,13 @@ class ItemPublic(ItemBase):
 class ItemsPublic(SQLModel):
     data: list[ItemPublic]
     count: int
+
+
+class MetricsPublic(SQLModel):
+    total_users: int
+    active_users: int
+    users_by_role: dict[UserRole, int]
+    total_items: int
 
 
 # Generic message

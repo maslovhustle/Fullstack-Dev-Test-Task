@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
@@ -13,7 +13,7 @@ from sqlmodel import Session
 from app.core import security
 from app.core.config import settings
 from app.core.db import engine
-from app.core.permissions import Permission, UserRole, has_permission
+from app.core.permissions import Permission, has_permission
 from app.models import TokenPayload, User
 
 logger = logging.getLogger(__name__)
@@ -30,6 +30,10 @@ def get_db() -> Generator[Session]:
 
 SessionDep = Annotated[Session, Depends(get_db)]
 TokenDep = Annotated[str, Depends(reusable_oauth2)]
+
+MAX_PAGE_SIZE = 100
+SkipParam = Annotated[int, Query(ge=0)]
+LimitParam = Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)]
 
 
 def _unauthenticated(detail: str) -> HTTPException:
@@ -62,14 +66,6 @@ def get_current_user(session: SessionDep, token: TokenDep) -> User:
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
-
-
-def get_current_active_superuser(current_user: CurrentUser) -> User:
-    if current_user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=403, detail="The user doesn't have enough privileges"
-        )
-    return current_user
 
 
 def ensure_permission(user: User, permission: Permission, request: Request) -> None:
