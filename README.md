@@ -101,8 +101,11 @@ uv run alembic upgrade head && uv run bash scripts/tests-start.sh
 ```
 
 Playwright needs the backend on :8000 with seeded users. Run `bunx playwright install chromium`
-once first; the config starts (or reuses) the Vite dev server on :5173. In Docker, use
-`docker compose run --rm playwright bunx playwright test`.
+once first. For a stable run, test the built app served by the backend (this is what CI does):
+`PLAYWRIGHT_BASE_URL=http://localhost:8000 bunx playwright test`, or inside Docker
+`docker compose run --rm playwright bunx playwright test`. Without `PLAYWRIGHT_BASE_URL` the
+config starts the Vite dev server on :5173. Its unbundled modules can occasionally exceed the 5 s
+assertion timeout when six workers run in parallel.
 
 `PERMISSION_MATRIX` in `backend/tests/api/test_authorization.py` is the executable form of the table
 below, written out by hand. `test_route_audit.py` fails if any non-public endpoint has no
