@@ -8,8 +8,9 @@ the policy that is not reflected in the docs fails here.
 import logging
 import threading
 import uuid
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from datetime import timedelta
 from unittest.mock import patch
 
@@ -20,40 +21,127 @@ from sqlmodel import Session, col, select
 
 from app.core.config import settings
 from app.core.permissions import UserRole
-from app.core.security import ALGORITHM, create_access_token
-from app.models import User
+from app.core.security import ALGORITHM, create_access_token, verify_password
+from app.models import Item, User
 from app.utils import generate_password_reset_token
 from tests.utils.item import create_random_item
-from tests.utils.user import create_user_with_role, login_as_new_user
+from tests.utils.user import (
+    create_user_with_role,
+    login_as_new_user,
+    user_authentication_headers,
+)
 from tests.utils.utils import random_email
 
 API = settings.API_V1_STR
 ADMIN, MANAGER, MEMBER = UserRole.ADMIN, UserRole.MANAGER, UserRole.MEMBER
 EVERYONE = {ADMIN, MANAGER, MEMBER}
-MISSING = uuid.UUID(int=0)  # allowed callers get 404 instead of mutating real data
+MISSING_ID = uuid.UUID(int=0)
+NEW_PASSWORD = "new-password-123"
 
-# (method, path, json body, roles that are allowed)
-PERMISSION_MATRIX: list[tuple[str, str, dict[str, object] | None, set[UserRole]]] = [
-    ("GET", "/users/me", None, EVERYONE),
-    ("PATCH", "/users/me", {"full_name": "New Name"}, EVERYONE),
-    (
+
+@dataclass(frozen=True)
+class Scenario:
+    """The real resources one matrix case acts on."""
+
+    db: Session
+    actor_id: uuid.UUID
+    password: str
+    target_id: uuid.UUID
+    target_email: str
+    new_email: str
+
+    def user(self, user_id: uuid.UUID) -> User | None:
+        self.db.expire_all()
+        return self.db.get(User, user_id)
+
+
+def _actor_renamed(s: Scenario) -> bool:
+    actor = s.user(s.actor_id)
+    return actor is not None and actor.full_name == "New Name"
+
+
+def _password_changed(s: Scenario) -> bool:
+    actor = s.user(s.actor_id)
+    return actor is not None and verify_password(NEW_PASSWORD, actor.hashed_password)[0]
+
+
+def _actor_deleted(s: Scenario) -> bool:
+    return s.user(s.actor_id) is None
+
+
+def _item_created(s: Scenario) -> bool:
+    statement = select(Item).where(Item.owner_id == s.actor_id)
+    return s.db.exec(statement).first() is not None
+
+
+def _user_created(s: Scenario) -> bool:
+    return s.db.exec(select(User).where(User.email == s.new_email)).first() is not None
+
+
+def _target_renamed(s: Scenario) -> bool:
+    target = s.user(s.target_id)
+    return target is not None and target.full_name == "Renamed"
+
+
+def _target_deleted(s: Scenario) -> bool:
+    return s.user(s.target_id) is None
+
+
+@dataclass(frozen=True)
+class Case:
+    method: str
+    path: str  # formatted with the Scenario, like the string values of `body`
+    allowed: set[UserRole]
+    success_status: int = 200
+    body: dict[str, str] | None = None
+    # Must hold after an allowed request and must not hold after a denied one
+    took_effect: Callable[[Scenario], bool] | None = None
+
+
+PERMISSION_MATRIX = [
+    Case("GET", "/users/me", EVERYONE),
+    Case(
+        "PATCH",
+        "/users/me",
+        EVERYONE,
+        body={"full_name": "New Name"},
+        took_effect=_actor_renamed,
+    ),
+    Case(
         "PATCH",
         "/users/me/password",
-        {"current_password": "wrong-pass", "new_password": "another-pass"},
         EVERYONE,
+        body={"current_password": "{s.password}", "new_password": NEW_PASSWORD},
+        took_effect=_password_changed,
     ),
-    ("DELETE", "/users/me", None, {MANAGER, MEMBER}),
-    ("POST", "/login/test-token", None, EVERYONE),
-    ("GET", "/items/", None, EVERYONE),
-    ("POST", "/items/", {"title": "Item"}, EVERYONE),
-    ("GET", "/users/", None, {ADMIN, MANAGER}),
-    ("GET", f"/users/{MISSING}", None, {ADMIN, MANAGER}),
-    ("POST", "/users/", {"email": "<random>", "password": "password123"}, {ADMIN}),
-    ("PATCH", f"/users/{MISSING}", {"full_name": "Renamed"}, {ADMIN}),
-    ("DELETE", f"/users/{MISSING}", None, {ADMIN}),
-    ("GET", "/metrics/", None, {ADMIN, MANAGER}),
-    ("POST", "/utils/test-email/?email_to=test@example.com", None, {ADMIN}),
-    ("POST", "/password-recovery-html-content/nobody@example.com", None, {ADMIN}),
+    Case("DELETE", "/users/me", {MANAGER, MEMBER}, took_effect=_actor_deleted),
+    Case("POST", "/login/test-token", EVERYONE),
+    Case("GET", "/items/", EVERYONE),
+    Case(
+        "POST", "/items/", EVERYONE, body={"title": "Item"}, took_effect=_item_created
+    ),
+    Case("GET", "/users/", {ADMIN, MANAGER}),
+    Case("GET", "/users/{s.target_id}", {ADMIN, MANAGER}),
+    Case(
+        "POST",
+        "/users/",
+        {ADMIN},
+        body={"email": "{s.new_email}", "password": NEW_PASSWORD},
+        took_effect=_user_created,
+    ),
+    Case(
+        "PATCH",
+        "/users/{s.target_id}",
+        {ADMIN},
+        body={"full_name": "Renamed"},
+        took_effect=_target_renamed,
+    ),
+    Case("DELETE", "/users/{s.target_id}", {ADMIN}, took_effect=_target_deleted),
+    Case("GET", "/metrics/", {ADMIN, MANAGER}),
+    Case(
+        "POST", "/utils/test-email/?email_to={s.new_email}", {ADMIN}, success_status=201
+    ),
+    Case("POST", "/password-recovery-html-content/{s.target_email}", {ADMIN}),
 ]
 
 
@@ -68,30 +156,59 @@ def no_outgoing_email() -> Generator[None]:
 
 @pytest.mark.parametrize("role", list(UserRole))
 @pytest.mark.parametrize(
-    ("method", "path", "body", "allowed_roles"),
-    PERMISSION_MATRIX,
-    ids=[f"{method} {path}" for method, path, _, _ in PERMISSION_MATRIX],
+    "case", PERMISSION_MATRIX, ids=lambda c: f"{c.method} {c.path}"
 )
 def test_permission_matrix(
+    client: TestClient, db: Session, role: UserRole, case: Case
+) -> None:
+    actor, password = create_user_with_role(db, role)
+    target, _ = create_user_with_role(db, MEMBER)
+    scenario = Scenario(db, actor.id, password, target.id, target.email, random_email())
+    headers = user_authentication_headers(
+        client=client, email=actor.email, password=password
+    )
+    body = case.body and {k: v.format(s=scenario) for k, v in case.body.items()}
+
+    r = client.request(
+        case.method,
+        f"{API}{case.path.format(s=scenario)}",
+        headers=headers,
+        json=body,
+    )
+
+    allowed = role in case.allowed
+    assert r.status_code == (case.success_status if allowed else 403), r.text
+    if not allowed:
+        assert r.json()["detail"].startswith("Missing permission:")
+    if case.took_effect:
+        assert case.took_effect(scenario) == allowed
+
+
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("GET", f"/users/{MISSING_ID}"),
+        ("PATCH", f"/users/{MISSING_ID}"),
+        ("DELETE", f"/users/{MISSING_ID}"),
+        ("POST", "/password-recovery-html-content/nobody@example.com"),
+    ],
+)
+def test_missing_resource_is_404_only_for_callers_with_permission(
     client: TestClient,
     db: Session,
-    role: UserRole,
+    member_token_headers: dict[str, str],
     method: str,
     path: str,
-    body: dict[str, object] | None,
-    allowed_roles: set[UserRole],
 ) -> None:
-    _, headers = login_as_new_user(client, db, role)
-    if body and body.get("email") == "<random>":
-        body = {**body, "email": random_email()}
+    _, admin = login_as_new_user(client, db, ADMIN)
+    body = {"full_name": "Nobody"} if method == "PATCH" else None
 
-    r = client.request(method, f"{API}{path}", headers=headers, json=body)
+    r = client.request(method, f"{API}{path}", headers=admin, json=body)
+    assert r.status_code == 404
 
-    if role in allowed_roles:
-        assert r.status_code not in (401, 403), r.json()
-    else:
-        assert r.status_code == 403
-        assert r.json()["detail"].startswith("Missing permission:")
+    # Without the permission the answer must not reveal whether it exists
+    r = client.request(method, f"{API}{path}", headers=member_token_headers, json=body)
+    assert r.status_code == 403
 
 
 def test_manager_cannot_create_users_but_admin_can(
