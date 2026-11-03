@@ -24,8 +24,8 @@ jobs:
         with:
           bun-version: 1.3.12
       - run: bun ci
-      - name: Lint (biome, no auto-fix)
-        run: bunx biome ci --no-errors-on-unmatched --files-ignore-unknown=true .
+      - name: Lint (read-only)
+        run: bun run lint
       - name: Typecheck app, unit and e2e tests
         run: bun run typecheck
       - name: Unit tests
