@@ -6,6 +6,7 @@ from sqlmodel import Session, select
 
 from app import crud
 from app.core.config import settings
+from app.core.permissions import UserRole
 from app.core.security import verify_password
 from app.models import User, UserCreate
 from tests.utils.user import create_random_user
@@ -19,7 +20,7 @@ def test_get_users_superuser_me(
     current_user = r.json()
     assert current_user
     assert current_user["is_active"] is True
-    assert current_user["is_superuser"]
+    assert current_user["role"] == UserRole.ADMIN
     assert current_user["email"] == settings.FIRST_SUPERUSER
 
 
@@ -30,7 +31,7 @@ def test_get_users_normal_user_me(
     current_user = r.json()
     assert current_user
     assert current_user["is_active"] is True
-    assert current_user["is_superuser"] is False
+    assert current_user["role"] == UserRole.MEMBER
     assert current_user["email"] == settings.EMAIL_TEST_USER
 
 

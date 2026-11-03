@@ -1,8 +1,12 @@
 import uuid
 from datetime import UTC, datetime
 
+import sqlalchemy as sa
 from pydantic import EmailStr
 from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel._compat import SQLModelConfig
+
+from app.core.permissions import UserRole
 
 
 def get_datetime_utc() -> datetime:
@@ -13,16 +17,19 @@ def get_datetime_utc() -> datetime:
 class UserBase(SQLModel):
     email: EmailStr = Field(unique=True, index=True, max_length=255)
     is_active: bool = True
-    is_superuser: bool = False
     full_name: str | None = Field(default=None, max_length=255)
 
 
 # Properties to receive via API on creation
 class UserCreate(UserBase):
     password: str = Field(min_length=8, max_length=128)
+    role: UserRole = UserRole.MEMBER
 
 
+# Self-service schemas reject unknown fields so a client cannot smuggle in `role`
 class UserRegister(SQLModel):
+    model_config = SQLModelConfig(extra="forbid")
+
     email: EmailStr = Field(max_length=255)
     password: str = Field(min_length=8, max_length=128)
     full_name: str | None = Field(default=None, max_length=255)
@@ -32,12 +39,14 @@ class UserRegister(SQLModel):
 class UserUpdate(SQLModel):
     email: EmailStr | None = Field(default=None, max_length=255)
     is_active: bool | None = None
-    is_superuser: bool | None = None
+    role: UserRole | None = None
     full_name: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class UserUpdateMe(SQLModel):
+    model_config = SQLModelConfig(extra="forbid")
+
     full_name: str | None = Field(default=None, max_length=255)
     email: EmailStr | None = Field(default=None, max_length=255)
 
@@ -51,6 +60,19 @@ class UpdatePassword(SQLModel):
 class User(UserBase, table=True):
     id: uuid.UUID = Field(default_factory=uuid.uuid4, primary_key=True)
     hashed_password: str
+    # Stored as a plain string (not a native Postgres enum) so adding a role
+    # needs no migration; values are validated against UserRole in Python.
+    role: UserRole = Field(
+        default=UserRole.MEMBER,
+        sa_type=sa.Enum(
+            UserRole,
+            native_enum=False,
+            create_constraint=False,
+            length=32,
+            values_callable=lambda roles: [role.value for role in roles],
+        ),
+        sa_column_kwargs={"server_default": UserRole.MEMBER.value},
+    )
     created_at: datetime | None = Field(default_factory=get_datetime_utc)
     items: list[Item] = Relationship(back_populates="owner", cascade_delete=True)
 
@@ -58,6 +80,7 @@ class User(UserBase, table=True):
 # Properties to return via API, id is always required
 class UserPublic(UserBase):
     id: uuid.UUID
+    role: UserRole
     created_at: datetime | None = None
 
 
