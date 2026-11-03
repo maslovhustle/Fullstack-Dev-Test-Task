@@ -14,9 +14,15 @@ import EditUser from "./EditUser"
 
 interface UserActionsMenuProps {
   user: UserPublic
+  canUpdate: boolean
+  canDelete: boolean
 }
 
-export const UserActionsMenu = ({ user }: UserActionsMenuProps) => {
+export const UserActionsMenu = ({
+  user,
+  canUpdate,
+  canDelete,
+}: UserActionsMenuProps) => {
   const [open, setOpen] = useState(false)
   const { user: currentUser } = useAuth()
 
@@ -32,8 +38,10 @@ export const UserActionsMenu = ({ user }: UserActionsMenuProps) => {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <EditUser user={user} onSuccess={() => setOpen(false)} />
-        <DeleteUser id={user.id} onSuccess={() => setOpen(false)} />
+        {canUpdate && <EditUser user={user} onSuccess={() => setOpen(false)} />}
+        {canDelete && (
+          <DeleteUser id={user.id} onSuccess={() => setOpen(false)} />
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   )

@@ -1,15 +1,22 @@
 import { createFileRoute } from "@tanstack/react-router"
 
+import { Permission } from "@/client"
 import ChangePassword from "@/components/UserSettings/ChangePassword"
 import DeleteAccount from "@/components/UserSettings/DeleteAccount"
 import UserInformation from "@/components/UserSettings/UserInformation"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import useAuth from "@/hooks/useAuth"
+import { hasPermission } from "@/lib/permissions"
 
 const tabsConfig = [
   { value: "my-profile", title: "My profile", component: UserInformation },
   { value: "password", title: "Password", component: ChangePassword },
-  { value: "danger-zone", title: "Danger zone", component: DeleteAccount },
+  {
+    value: "danger-zone",
+    title: "Danger zone",
+    component: DeleteAccount,
+    permission: Permission.PROFILE_DELETE,
+  },
 ]
 
 export const Route = createFileRoute("/_layout/settings")({
@@ -25,9 +32,9 @@ export const Route = createFileRoute("/_layout/settings")({
 
 function UserSettings() {
   const { user: currentUser } = useAuth()
-  const finalTabs = currentUser?.is_superuser
-    ? tabsConfig.slice(0, 3)
-    : tabsConfig
+  const finalTabs = tabsConfig.filter(
+    (tab) => !tab.permission || hasPermission(currentUser, tab.permission),
+  )
 
   if (!currentUser) {
     return null

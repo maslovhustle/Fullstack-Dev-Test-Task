@@ -4,10 +4,13 @@ import type { UserPublic } from "@/client"
 import type { DataTableFeatures } from "@/components/Common/DataTable"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { capitalize } from "@/utils"
 import { UserActionsMenu } from "./UserActionsMenu"
 
 export type UserTableData = UserPublic & {
   isCurrentUser: boolean
+  canUpdate: boolean
+  canDelete: boolean
 }
 
 export const columns: ColumnDef<DataTableFeatures, UserTableData>[] = [
@@ -40,12 +43,10 @@ export const columns: ColumnDef<DataTableFeatures, UserTableData>[] = [
     ),
   },
   {
-    accessorKey: "is_superuser",
+    accessorKey: "role",
     header: "Role",
     cell: ({ row }) => (
-      <Badge variant={row.original.is_superuser ? "default" : "secondary"}>
-        {row.original.is_superuser ? "Superuser" : "User"}
-      </Badge>
+      <Badge variant="secondary">{capitalize(row.original.role)}</Badge>
     ),
   },
   {
@@ -68,10 +69,20 @@ export const columns: ColumnDef<DataTableFeatures, UserTableData>[] = [
   {
     id: "actions",
     header: () => <span className="sr-only">Actions</span>,
-    cell: ({ row }) => (
-      <div className="flex justify-end">
-        <UserActionsMenu user={row.original} />
-      </div>
-    ),
+    cell: ({ row }) => {
+      const { canUpdate, canDelete } = row.original
+      if (!canUpdate && !canDelete) {
+        return null
+      }
+      return (
+        <div className="flex justify-end">
+          <UserActionsMenu
+            user={row.original}
+            canUpdate={canUpdate}
+            canDelete={canDelete}
+          />
+        </div>
+      )
+    },
   },
 ]
