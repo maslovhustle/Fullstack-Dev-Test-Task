@@ -1,8 +1,10 @@
+import logging
 from collections.abc import Generator
+from dataclasses import dataclass
 from typing import Annotated
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jwt.exceptions import InvalidTokenError
 from pydantic import ValidationError
@@ -11,8 +13,10 @@ from sqlmodel import Session
 from app.core import security
 from app.core.config import settings
 from app.core.db import engine
-from app.core.permissions import UserRole
+from app.core.permissions import Permission, UserRole, has_permission
 from app.models import TokenPayload, User
+
+logger = logging.getLogger(__name__)
 
 reusable_oauth2 = OAuth2PasswordBearer(
     tokenUrl=f"{settings.API_V1_STR}/login/access-token"
@@ -28,22 +32,32 @@ SessionDep = Annotated[Session, Depends(get_db)]
 TokenDep = Annotated[str, Depends(reusable_oauth2)]
 
 
+def _unauthenticated(detail: str) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
 def get_current_user(session: SessionDep, token: TokenDep) -> User:
+    """Resolve the bearer token to a user, or fail with 401.
+
+    The token only identifies the user (`sub`); the role is always loaded
+    from the database, so role changes apply on the very next request.
+    """
     try:
         payload = jwt.decode(
             token, settings.SECRET_KEY, algorithms=[security.ALGORITHM]
         )
         token_data = TokenPayload(**payload)
     except InvalidTokenError, ValidationError:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Could not validate credentials",
-        )
+        raise _unauthenticated("Could not validate credentials")
     user = session.get(User, token_data.sub)
     if not user:
-        raise HTTPException(status_code=404, detail="User not found")
+        raise _unauthenticated("Could not validate credentials")
     if not user.is_active:
-        raise HTTPException(status_code=400, detail="Inactive user")
+        raise _unauthenticated("Inactive user")
     return user
 
 
@@ -56,3 +70,44 @@ def get_current_active_superuser(current_user: CurrentUser) -> User:
             status_code=403, detail="The user doesn't have enough privileges"
         )
     return current_user
+
+
+def ensure_permission(user: User, permission: Permission, request: Request) -> None:
+    """Raise 403 unless the user's role grants `permission`; log every denial."""
+    if has_permission(user.role, permission):
+        return
+    logger.warning(
+        "authorization denied user_id=%s role=%s permission=%s method=%s path=%s",
+        user.id,
+        user.role,
+        permission,
+        request.method,
+        request.url.path,
+        extra={
+            "user_id": str(user.id),
+            "role": str(user.role),
+            "permission": str(permission),
+            "method": request.method,
+            "path": request.url.path,
+        },
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail=f"Missing permission: {permission}",
+    )
+
+
+@dataclass(frozen=True)
+class PermissionChecker:
+    """FastAPI dependency that authenticates the caller and checks one permission."""
+
+    permission: Permission
+
+    def __call__(self, request: Request, current_user: CurrentUser) -> User:
+        ensure_permission(current_user, self.permission, request)
+        return current_user
+
+
+def require_permission(permission: Permission) -> PermissionChecker:
+    """Use as `dependencies=[Depends(require_permission(Permission.X))]`."""
+    return PermissionChecker(permission)
