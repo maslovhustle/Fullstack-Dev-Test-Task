@@ -41,9 +41,11 @@ The values there are **local development defaults only**.
 | manager | `SEED_MANAGER_EMAIL` (`manager@example.com`) | `SEED_MANAGER_PASSWORD` |
 | member | `SEED_MEMBER_EMAIL` (`member@example.com`) | `SEED_MEMBER_PASSWORD` |
 
-Leave the `SEED_*` variables empty to skip the demo accounts. Outside development the settings
-refuse the default `changethis` passwords. To re-run the seed by hand:
-`docker compose exec backend bash scripts/prestart.sh`.
+The admin is always seeded. The manager and member demo accounts are created only when
+`SEED_DEMO_USERS=true`. `compose.override.yml` (local Docker) sets it, and it is deliberately
+absent from the committed `.env`, which deploy pipelines also read, so deployments never get demo
+users. When demo seeding is on, the default `changethis` passwords are refused outside development.
+To re-run the seed by hand: `docker compose exec backend bash scripts/prestart.sh`.
 
 ## Local development (uv + bun)
 
@@ -51,7 +53,7 @@ Requirements: [uv](https://docs.astral.sh/uv/) (Python ≥ 3.14 is installed by 
 
 ```bash
 docker compose up -d db mailpit                                   # Postgres 18 + Mailpit
-cd backend && uv sync && uv run bash scripts/prestart.sh          # migrate + seed
+cd backend && uv sync && SEED_DEMO_USERS=true uv run bash scripts/prestart.sh  # migrate + seed
 uv run fastapi dev                                                # API on :8000
 ```
 

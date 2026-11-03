@@ -39,6 +39,8 @@ def init_db(session: Session) -> None:
         password=settings.FIRST_SUPERUSER_PASSWORD,
         role=UserRole.ADMIN,
     )
+    if not settings.SEED_DEMO_USERS:
+        return
     demo_users = [
         (settings.SEED_MANAGER_EMAIL, settings.SEED_MANAGER_PASSWORD, UserRole.MANAGER),
         (settings.SEED_MEMBER_EMAIL, settings.SEED_MEMBER_PASSWORD, UserRole.MEMBER),

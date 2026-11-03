@@ -65,7 +65,10 @@ class Settings(BaseSettings):
     # Seeded as the first admin by scripts/prestart.sh
     FIRST_SUPERUSER: EmailStr
     FIRST_SUPERUSER_PASSWORD: str
-    # Optional demo accounts seeded alongside the admin (leave unset to skip)
+    # Demo accounts, seeded only when SEED_DEMO_USERS is true. The flag is set by
+    # compose.override.yml (local dev) and deliberately NOT in the committed .env,
+    # which deploy pipelines also read.
+    SEED_DEMO_USERS: bool = False
     SEED_MANAGER_EMAIL: EmailStr | None = None
     SEED_MANAGER_PASSWORD: str | None = None
     SEED_MEMBER_EMAIL: EmailStr | None = None
@@ -90,8 +93,11 @@ class Settings(BaseSettings):
         self._check_default_secret(
             "FIRST_SUPERUSER_PASSWORD", self.FIRST_SUPERUSER_PASSWORD
         )
-        self._check_default_secret("SEED_MANAGER_PASSWORD", self.SEED_MANAGER_PASSWORD)
-        self._check_default_secret("SEED_MEMBER_PASSWORD", self.SEED_MEMBER_PASSWORD)
+        if self.SEED_DEMO_USERS:
+            self._check_default_secret(
+                "SEED_MANAGER_PASSWORD", self.SEED_MANAGER_PASSWORD
+            )
+            self._check_default_secret("SEED_MEMBER_PASSWORD", self.SEED_MEMBER_PASSWORD)
 
         return self
 

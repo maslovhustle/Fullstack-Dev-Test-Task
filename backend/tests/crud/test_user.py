@@ -1,8 +1,11 @@
+import pytest
 from fastapi.encoders import jsonable_encoder
 from pwdlib.hashers.bcrypt import BcryptHasher
 from sqlmodel import Session
 
 from app import crud
+from app.core.config import settings
+from app.core.db import init_db
 from app.core.permissions import UserRole
 from app.core.security import verify_password
 from app.models import User, UserCreate, UserUpdate
@@ -129,3 +132,25 @@ def test_authenticate_user_with_bcrypt_upgrades_to_argon2(db: Session) -> None:
     assert verified
     # Should not need another update since it's already argon2
     assert updated_hash is None
+
+
+def test_demo_users_are_seeded_only_when_enabled(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager_email, member_email = random_email(), random_email()
+    monkeypatch.setattr(settings, "SEED_MANAGER_EMAIL", manager_email)
+    monkeypatch.setattr(settings, "SEED_MANAGER_PASSWORD", random_lower_string())
+    monkeypatch.setattr(settings, "SEED_MEMBER_EMAIL", member_email)
+    monkeypatch.setattr(settings, "SEED_MEMBER_PASSWORD", random_lower_string())
+
+    monkeypatch.setattr(settings, "SEED_DEMO_USERS", False)
+    init_db(db)
+    assert crud.get_user_by_email(session=db, email=manager_email) is None
+
+    monkeypatch.setattr(settings, "SEED_DEMO_USERS", True)
+    init_db(db)
+    init_db(db)  # idempotent
+    manager = crud.get_user_by_email(session=db, email=manager_email)
+    member = crud.get_user_by_email(session=db, email=member_email)
+    assert manager and manager.role == UserRole.MANAGER
+    assert member and member.role == UserRole.MEMBER
