@@ -6,7 +6,7 @@ from typing import Any
 
 import emails
 import jwt
-from jinja2 import Template
+from jinja2 import Environment
 from jwt.exceptions import InvalidTokenError
 
 from app.core import security
@@ -26,7 +26,7 @@ def render_email_template(*, template_name: str, context: dict[str, Any]) -> str
     template_str = (
         Path(__file__).parent / "email-templates" / template_name
     ).read_text()
-    template: Template = Template(template_str)
+    template = Environment(autoescape=True).from_string(template_str)
     html_content = template.render(context)
     return html_content
 
