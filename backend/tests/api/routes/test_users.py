@@ -6,6 +6,7 @@ from sqlmodel import Session, select
 
 from app import crud
 from app.core.config import settings
+from app.core.permissions import UserRole
 from app.core.security import verify_password
 from app.models import User, UserCreate
 from tests.utils.user import create_random_user
@@ -19,7 +20,7 @@ def test_get_users_superuser_me(
     current_user = r.json()
     assert current_user
     assert current_user["is_active"] is True
-    assert current_user["is_superuser"]
+    assert current_user["role"] == UserRole.ADMIN
     assert current_user["email"] == settings.FIRST_SUPERUSER
 
 
@@ -30,7 +31,7 @@ def test_get_users_normal_user_me(
     current_user = r.json()
     assert current_user
     assert current_user["is_active"] is True
-    assert current_user["is_superuser"] is False
+    assert current_user["role"] == UserRole.MEMBER
     assert current_user["email"] == settings.EMAIL_TEST_USER
 
 
@@ -87,7 +88,10 @@ def test_get_non_existing_user_as_superuser(
     assert r.json() == {"detail": "User not found"}
 
 
-def test_get_existing_user_current_user(client: TestClient, db: Session) -> None:
+def test_get_user_by_id_requires_users_list_even_for_self(
+    client: TestClient, db: Session
+) -> None:
+    """Members read their own profile via /users/me; /users/{id} is a directory lookup."""
     username = random_email()
     password = random_lower_string()
     user_in = UserCreate(email=username, password=password)
@@ -107,11 +111,8 @@ def test_get_existing_user_current_user(client: TestClient, db: Session) -> None
         f"{settings.API_V1_STR}/users/{user_id}",
         headers=headers,
     )
-    assert 200 <= r.status_code < 300
-    api_user = r.json()
-    existing_user = crud.get_user_by_email(session=db, email=username)
-    assert existing_user
-    assert existing_user.email == api_user["email"]
+    assert r.status_code == 403
+    assert r.json() == {"detail": "Missing permission: users:list"}
 
 
 def test_get_existing_user_permissions_error(
@@ -126,7 +127,7 @@ def test_get_existing_user_permissions_error(
         headers=normal_user_token_headers,
     )
     assert r.status_code == 403
-    assert r.json() == {"detail": "The user doesn't have enough privileges"}
+    assert r.json() == {"detail": "Missing permission: users:list"}
 
 
 def test_get_non_existing_user_permissions_error(
@@ -140,7 +141,7 @@ def test_get_non_existing_user_permissions_error(
         headers=normal_user_token_headers,
     )
     assert r.status_code == 403
-    assert r.json() == {"detail": "The user doesn't have enough privileges"}
+    assert r.json() == {"detail": "Missing permission: users:list"}
 
 
 def test_create_user_existing_username(
@@ -444,7 +445,7 @@ def test_delete_user_me(client: TestClient, db: Session) -> None:
     assert result is None
 
     user_query = select(User).where(User.id == user_id)
-    user_db = db.execute(user_query).first()
+    user_db = db.exec(user_query).first()
     assert user_db is None
 
 
@@ -457,7 +458,7 @@ def test_delete_user_me_as_superuser(
     )
     assert r.status_code == 403
     response = r.json()
-    assert response["detail"] == "Super users are not allowed to delete themselves"
+    assert response["detail"] == "Missing permission: profile:delete"
 
 
 def test_delete_user_super_user(
@@ -502,7 +503,7 @@ def test_delete_user_current_super_user_error(
         headers=superuser_token_headers,
     )
     assert r.status_code == 403
-    assert r.json()["detail"] == "Super users are not allowed to delete themselves"
+    assert r.json()["detail"] == "You cannot delete yourself"
 
 
 def test_delete_user_without_privileges(
@@ -518,4 +519,4 @@ def test_delete_user_without_privileges(
         headers=normal_user_token_headers,
     )
     assert r.status_code == 403
-    assert r.json()["detail"] == "The user doesn't have enough privileges"
+    assert r.json()["detail"] == "Missing permission: users:delete"

@@ -6,7 +6,7 @@ export default defineConfig({
 
   plugins: [
     { name: "@hey-api/client-axios", throwOnError: true },
-    { name: "@hey-api/typescript", case: "preserve" },
+    { name: "@hey-api/typescript", case: "preserve", enums: "javascript" },
     {
       name: "@hey-api/sdk",
       operations: {

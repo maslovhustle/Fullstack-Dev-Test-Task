@@ -1,5 +1,6 @@
-import { Briefcase, Home, Users } from "lucide-react"
+import { Briefcase, ChartColumn, Home, Settings2, Users } from "lucide-react"
 
+import { Permission } from "@/client"
 import { SidebarAppearance } from "@/components/Common/Appearance"
 import { Logo } from "@/components/Common/Logo"
 import {
@@ -9,20 +10,44 @@ import {
   SidebarHeader,
 } from "@/components/ui/sidebar"
 import useAuth from "@/hooks/useAuth"
+import { hasPermission } from "@/lib/permissions"
 import { type Item, Main } from "./Main"
 import { User } from "./User"
 
-const baseItems: Item[] = [
+const navItems: Item[] = [
   { icon: Home, title: "Dashboard", path: "/" },
-  { icon: Briefcase, title: "Items", path: "/items" },
+  {
+    icon: Briefcase,
+    title: "Items",
+    path: "/items",
+    permission: Permission.ITEMS_USE,
+  },
+  {
+    icon: Users,
+    title: "Users",
+    path: "/admin",
+    permission: Permission.USERS_LIST,
+  },
+  {
+    icon: ChartColumn,
+    title: "Metrics",
+    path: "/metrics",
+    permission: Permission.METRICS_VIEW,
+  },
+  {
+    icon: Settings2,
+    title: "System",
+    path: "/system",
+    permission: Permission.SETTINGS_MANAGE,
+  },
 ]
 
 export function AppSidebar() {
   const { user: currentUser } = useAuth()
 
-  const items = currentUser?.is_superuser
-    ? [...baseItems, { icon: Users, title: "Admin", path: "/admin" }]
-    : baseItems
+  const items = navItems.filter(
+    (item) => !item.permission || hasPermission(currentUser, item.permission),
+  )
 
   return (
     <Sidebar collapsible="icon">

@@ -1,8 +1,12 @@
+import pytest
 from fastapi.encoders import jsonable_encoder
 from pwdlib.hashers.bcrypt import BcryptHasher
 from sqlmodel import Session
 
 from app import crud
+from app.core.config import settings
+from app.core.db import init_db
+from app.core.permissions import UserRole
 from app.core.security import verify_password
 from app.models import User, UserCreate, UserUpdate
 from tests.utils.utils import random_email, random_lower_string
@@ -50,26 +54,26 @@ def test_check_if_user_is_active_inactive(db: Session) -> None:
     assert user.is_active is False
 
 
-def test_check_if_user_is_superuser(db: Session) -> None:
+def test_create_user_with_admin_role(db: Session) -> None:
     email = random_email()
     password = random_lower_string()
-    user_in = UserCreate(email=email, password=password, is_superuser=True)
+    user_in = UserCreate(email=email, password=password, role=UserRole.ADMIN)
     user = crud.create_user(session=db, user_create=user_in)
-    assert user.is_superuser is True
+    assert user.role == UserRole.ADMIN
 
 
-def test_check_if_user_is_superuser_normal_user(db: Session) -> None:
+def test_create_user_defaults_to_member_role(db: Session) -> None:
     username = random_email()
     password = random_lower_string()
     user_in = UserCreate(email=username, password=password)
     user = crud.create_user(session=db, user_create=user_in)
-    assert user.is_superuser is False
+    assert user.role == UserRole.MEMBER
 
 
 def test_get_user(db: Session) -> None:
     password = random_lower_string()
     username = random_email()
-    user_in = UserCreate(email=username, password=password, is_superuser=True)
+    user_in = UserCreate(email=username, password=password, role=UserRole.ADMIN)
     user = crud.create_user(session=db, user_create=user_in)
     user_2 = db.get(User, user.id)
     assert user_2
@@ -80,10 +84,10 @@ def test_get_user(db: Session) -> None:
 def test_update_user(db: Session) -> None:
     password = random_lower_string()
     email = random_email()
-    user_in = UserCreate(email=email, password=password, is_superuser=True)
+    user_in = UserCreate(email=email, password=password, role=UserRole.ADMIN)
     user = crud.create_user(session=db, user_create=user_in)
     new_password = random_lower_string()
-    user_in_update = UserUpdate(password=new_password, is_superuser=True)
+    user_in_update = UserUpdate(password=new_password, role=UserRole.ADMIN)
     if user.id is not None:
         crud.update_user(session=db, db_user=user, user_in=user_in_update)
     user_2 = db.get(User, user.id)
@@ -128,3 +132,25 @@ def test_authenticate_user_with_bcrypt_upgrades_to_argon2(db: Session) -> None:
     assert verified
     # Should not need another update since it's already argon2
     assert updated_hash is None
+
+
+def test_demo_users_are_seeded_only_when_enabled(
+    db: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager_email, member_email = random_email(), random_email()
+    monkeypatch.setattr(settings, "SEED_MANAGER_EMAIL", manager_email)
+    monkeypatch.setattr(settings, "SEED_MANAGER_PASSWORD", random_lower_string())
+    monkeypatch.setattr(settings, "SEED_MEMBER_EMAIL", member_email)
+    monkeypatch.setattr(settings, "SEED_MEMBER_PASSWORD", random_lower_string())
+
+    monkeypatch.setattr(settings, "SEED_DEMO_USERS", False)
+    init_db(db)
+    assert crud.get_user_by_email(session=db, email=manager_email) is None
+
+    monkeypatch.setattr(settings, "SEED_DEMO_USERS", True)
+    init_db(db)
+    init_db(db)  # idempotent
+    manager = crud.get_user_by_email(session=db, email=manager_email)
+    member = crud.get_user_by_email(session=db, email=member_email)
+    assert manager and manager.role == UserRole.MANAGER
+    assert member and member.role == UserRole.MEMBER
