@@ -1,0 +1,7 @@
+[Unit]
+Description=Back up Ghost database and content
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/ghost-backup

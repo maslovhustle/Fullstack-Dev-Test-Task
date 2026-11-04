@@ -1,0 +1,10 @@
+# Secrets and local state: never commit these
+.env
+*.tfvars
+*.tfstate
+*.tfstate.*
+tfplan
+.terraform/
+backups/
+.owner-password
+.tmp.*/

@@ -1,0 +1,55 @@
+# Only Caddy publishes ports. Ghost and MySQL are reachable from Caddy alone.
+name: ghost
+
+services:
+  db:
+    image: mysql:8.4.13
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?}
+      MYSQL_DATABASE: ghost
+      MYSQL_USER: ghost
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?}
+    volumes:
+      - ${DATA_DIR:?}/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=$$MYSQL_PASSWORD mysqladmin ping -h 127.0.0.1 -u ghost --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+  ghost:
+    image: ghost:6.74.0-alpine
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      url: ${GHOST_URL:-https://${GHOST_DOMAIN:?}}
+      database__client: mysql
+      database__connection__host: db
+      database__connection__user: ghost
+      database__connection__password: ${MYSQL_PASSWORD:?}
+      database__connection__database: ghost
+      # Device verification emails a login code, and no mail server is configured.
+      security__staffDeviceVerification: "false"
+    volumes:
+      - ${DATA_DIR:?}/ghost-content:/var/lib/ghost/content
+
+  caddy:
+    image: caddy:2.11.7-alpine
+    restart: unless-stopped
+    depends_on:
+      - ghost
+    environment:
+      GHOST_DOMAIN: ${GHOST_DOMAIN:?}
+      ACME_EMAIL: ${ACME_EMAIL:?}
+      CADDY_EXTRA_GLOBAL: ${CADDY_EXTRA_GLOBAL:-}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${DATA_DIR:?}/caddy-data:/data
+      - ${DATA_DIR:?}/caddy-config:/config

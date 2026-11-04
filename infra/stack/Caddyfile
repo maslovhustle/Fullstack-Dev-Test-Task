@@ -1,0 +1,9 @@
+{
+	email {$ACME_EMAIL}
+	{$CADDY_EXTRA_GLOBAL}
+}
+
+{$GHOST_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy ghost:2368
+}
