@@ -1,70 +1,145 @@
-# Full Stack FastAPI Template — with role-based access control
+# Role-based access control for the Full Stack FastAPI Template
 
-[![Test Docker Compose](../../actions/workflows/test-docker-compose.yml/badge.svg)](../../actions/workflows/test-docker-compose.yml)
 [![Test Backend](../../actions/workflows/test-backend.yml/badge.svg)](../../actions/workflows/test-backend.yml)
+[![Test Frontend](../../actions/workflows/test-frontend.yml/badge.svg)](../../actions/workflows/test-frontend.yml)
+[![Playwright Tests](../../actions/workflows/playwright.yml/badge.svg)](../../actions/workflows/playwright.yml)
 [![Security](../../actions/workflows/security.yml/badge.svg)](../../actions/workflows/security.yml)
 
-This fork adds role-based access control (RBAC) to the template. There are three roles, **admin**,
-**manager** and **member**, enforced the same way in the API and in the UI.
-Design records: [ADR 001](docs/adr/001-permission-map-and-dependency-factory.md),
-[ADR 002](docs/adr/002-backend-supplied-capabilities.md). Trade-offs and scope cuts: [NOTES.md](NOTES.md).
+This is my solution to a full-stack test assignment: add RBAC to the
+[Full Stack FastAPI Template](https://github.com/fastapi/full-stack-fastapi-template).
+There are three roles, **admin**, **manager** and **member**. One policy file decides what each
+role may do. The API enforces it on every route, and the UI renders from the permissions the API
+returns.
 
-## Quick start (Docker Compose)
+| Admin: full user management | Manager: read-only users | Member: direct navigation is refused |
+|---|---|---|
+| ![Admin users page](docs/screenshots/admin-users.png) | ![Manager users page](docs/screenshots/manager-users.png) | ![Access denied page](docs/screenshots/member-access-denied.png) |
 
-Requirements: Docker with Compose v2.
+More screenshots: [manager metrics](docs/screenshots/manager-metrics.png),
+[users at 390px](docs/screenshots/mobile-users.png),
+[access denied at 390px](docs/screenshots/mobile-access-denied.png).
+
+## Quick start
+
+You need Docker with Compose v2.
 
 ```bash
 docker compose up -d --build
 ```
 
-The backend container applies migrations and seeds the users before it starts, so after about a
-minute everything is ready. Follow the startup with `docker compose logs -f backend`.
+The backend container applies migrations and seeds the users before it starts. After about a
+minute, open **<http://localhost:8000>**.
 
-| URL | What |
-|---|---|
-| <http://localhost:8000> | App (React UI served by FastAPI) |
-| <http://localhost:8000/docs> | Swagger UI |
-| <http://localhost:8080> | Adminer (database) |
-| <http://localhost:8025> | Mailpit (captured emails) |
+These accounts are **local demo credentials only**. They come from the committed `.env` and are
+created only by the local Compose setup:
 
-For live reload while editing, use `docker compose watch` instead of `up`.
-
-### Seeded users
-
-The seed (`backend/app/initial_data.py`, run by `backend/scripts/prestart.sh`) is idempotent: it
-creates missing users and never modifies existing ones. Credentials come from the repo-root `.env`.
-The values there are **local development defaults only**.
-
-| Role | Email (env var) | Password (env var) |
+| Role | Email | Password |
 |---|---|---|
-| admin | `FIRST_SUPERUSER` (`admin@example.com`) | `FIRST_SUPERUSER_PASSWORD` |
-| manager | `SEED_MANAGER_EMAIL` (`manager@example.com`) | `SEED_MANAGER_PASSWORD` |
-| member | `SEED_MEMBER_EMAIL` (`member@example.com`) | `SEED_MEMBER_PASSWORD` |
+| admin | `admin@example.com` | `changethis` |
+| manager | `manager@example.com` | `changethis` |
+| member | `member@example.com` | `changethis` |
 
-The admin is always seeded. The manager and member demo accounts are created only when
-`SEED_DEMO_USERS=true`. `compose.override.yml` (local Docker) sets it, and it is deliberately
-absent from the committed `.env`, which deploy pipelines also read, so deployments never get demo
-users. When demo seeding is on, the default `changethis` passwords are refused outside development.
-To re-run the seed by hand: `docker compose exec backend bash scripts/prestart.sh`.
+Other local URLs: Swagger UI <http://localhost:8000/docs>, Adminer <http://localhost:8080>,
+Mailpit <http://localhost:8025>.
 
-## Local development (uv + bun)
+## Two-minute walkthrough
 
-Requirements: [uv](https://docs.astral.sh/uv/) (Python ≥ 3.14 is installed by uv), [bun](https://bun.sh), Docker.
+1. **Admin.** Log in as `admin@example.com`. The sidebar shows Users, Metrics and System. On
+   **Users**, add a user and pick a role, or edit someone's role.
+2. **Manager.** Log out and log in as `manager@example.com`. **Users** is now read-only: no Add
+   User button and no row actions. **Metrics** still works, and System is gone from the sidebar.
+   Open <http://localhost:8000/system> directly: you get **Access denied**, and you stay logged in.
+3. **Member.** Log in as `member@example.com`. Only Dashboard and Items remain. Open
+   <http://localhost:8000/admin> directly: Access denied again, with a way back.
+
+To see that roles are not cached in the token, stay logged in as the manager in one browser and
+demote that account as admin in another. The manager's next request is refused.
+
+## Who can do what
+
+| Action | Permission | admin | manager | member |
+|---|---|:-:|:-:|:-:|
+| View own profile | `profile:read` | ✓ | ✓ | ✓ |
+| Update own profile and password | `profile:update` | ✓ | ✓ | ✓ |
+| Delete own account | `profile:delete` | ✗¹ | ✓ | ✓ |
+| Create, read, update and delete own items | `items:use` | ✓ | ✓ | ✓ |
+| Access other people's items | `items:manage_all` | ✓ | ✗ | ✗ |
+| List users and view a user | `users:list` | ✓ | ✓ | ✗ |
+| Create a user, including their role | `users:create` | ✓ | ✗ | ✗ |
+| Edit a user, including role and active status | `users:update` | ✓ | ✗ | ✗ |
+| Delete a user | `users:delete` | ✓ | ✗ | ✗ |
+| View metrics | `metrics:view` | ✓ | ✓ | ✗ |
+| Manage global settings (System page) | `settings:manage` | ✓ | ✗ | ✗ |
+
+¹ So that the system can't lose its last admin: admins can't delete their own account, nobody can
+change their own role, deactivate or delete themselves through `/users/{id}` (403), and removing
+the last active user who can manage users is refused (409).
+
+`PERMISSION_MATRIX` in [`test_authorization.py`](backend/tests/api/test_authorization.py) is the
+executable form of this table, endpoint by endpoint. The only public endpoints are login, signup,
+password recovery and reset, the health check, and the development-only `/private` router.
+
+**Status codes:** `401` means the token is missing, invalid or expired, or the user is deleted or
+inactive, so the UI logs out. `403` means you are authenticated but not allowed, so the UI keeps
+your session. `422` means `role` was sent to signup or `PATCH /users/me`, which reject unknown
+fields.
+
+## How it works
+
+**Storage.** `user.role` is a `VARCHAR(32)` validated by the `UserRole` enum, defaulting to
+`member`. I chose a plain string over a Postgres enum so that a new role needs no migration. The
+JWT carries only the user id. The role is read from the database on every request, so a demotion
+applies on the next request with the same token.
+
+**Backend enforcement.** [`app/core/permissions.py`](backend/app/core/permissions.py) is the single
+policy: a `Permission` enum and a `ROLE_PERMISSIONS` map. Routes declare what they need with
+`dependencies=[Depends(require_permission(Permission.USERS_LIST))]`, and no route compares role
+names. Rules that depend on data (item ownership, self-lockout) are small named helpers. Every
+refused action is logged at WARNING with user id, role, reason, method and path template. A test
+walks all routes and fails if a non-public endpoint has no permission check.
+
+**Frontend capabilities.** `GET /users/me` returns the user's `role` and computed `permissions`.
+The UI calls one helper, `hasPermission(user, Permission.X)`, to filter the sidebar, show controls
+and guard routes, and the guards read the cached user. There is no role-to-permission map in the
+frontend. Hiding UI is only a convenience; the API enforces every rule.
+
+**Adding a role** takes two edits in `permissions.py`: a `UserRole` member and a `ROLE_PERMISSIONS`
+entry. No migration or route changes are needed. Then regenerate the client
+(`bash scripts/generate-client.sh`) so the role appears in the role picker, and add the role to the
+matrix test and the table above.
+
+## Tests and migrations
+
+Backend tests are safe to run at any time. They use a dedicated `<database>_test` database, created
+and migrated automatically, and refuse to run against anything else, so your demo data stays intact.
+They need the `db` service.
 
 ```bash
-docker compose up -d db mailpit                                   # Postgres 18 + Mailpit
-cd backend && uv sync && SEED_DEMO_USERS=true uv run bash scripts/prestart.sh  # migrate + seed
-uv run fastapi dev                                                # API on :8000
+cd backend
+uv sync
+uv run bash scripts/tests-start.sh   # unit + integration tests, with coverage
+uv run bash scripts/lint.sh          # mypy (strict), ty, ruff
 ```
 
-In a second terminal, from the repo root, run `bun install && bun run dev`. The Vite dev server
-starts at <http://localhost:5173> and talks to the API on :8000. Stop the Compose `backend`
-service first (`docker compose stop backend`) because it also uses port 8000.
+```bash
+cd frontend
+bun install
+bun run lint                         # read-only; `bun run lint:fix` applies fixes
+bun run typecheck
+bun run test:unit                    # bun test: permission helpers and API error policy
+```
 
-## Database migrations
+End-to-end tests run against the built app served by the backend, the same way CI runs them:
 
-Migrations are managed by Alembic (run inside `backend/`, or prefix with
-`docker compose exec backend`):
+```bash
+docker compose run --rm playwright bunx playwright test
+```
+
+To run them from your machine instead, use `bunx playwright install chromium` once, then
+`PLAYWRIGHT_BASE_URL=http://localhost:8000 bunx playwright test` from `frontend/`.
+
+Migrations are managed by Alembic. Run these inside `backend/`, or prefix them with
+`docker compose exec backend`:
 
 ```bash
 uv run alembic upgrade head                                   # apply
@@ -72,101 +147,20 @@ uv run alembic downgrade -1                                   # roll back one re
 uv run alembic revision --autogenerate -m "describe change"   # after editing app/models.py
 ```
 
-The RBAC migration (`b7c4e9a1d2f3`) adds `user.role`, backfills it
-(`is_superuser = true` → `admin`, everyone else → `member`) and drops `is_superuser`. The
-downgrade reverses it (managers become regular users). Both directions were tested on Postgres
-with data.
+The RBAC migration maps `is_superuser = true` to `admin` and everyone else to `member`, then drops
+`is_superuser`. Its downgrade is lossy: managers become regular users.
 
-## Tests and checks
+To develop without the backend container, run `docker compose stop backend`, then
+`cd backend && SEED_DEMO_USERS=true uv run bash scripts/prestart.sh && uv run fastapi dev`, and
+`bun run dev` from the repo root for the Vite server on <http://localhost:5173>.
 
-| Layer | What it covers | Command |
-|---|---|---|
-| Backend unit | Policy invariants, `/users/me` permissions, schema `role` rejection, self-lockout rule (`tests/core/`) | `cd backend && uv run bash scripts/tests-start.sh` |
-| Backend integration | Every endpoint against Postgres, including the role × endpoint matrix and the route audit (`tests/api/`) | same command (pytest + coverage) |
-| Backend lint | mypy (strict), ty, ruff check, ruff format, on `app/` and `tests/` | `cd backend && uv run bash scripts/lint.sh` |
-| Frontend unit | `hasPermission`, `requirePermission`, the 401/403 error policy, no-retry on 4xx (`src/**/*.test.ts`, `bun test`) | `cd frontend && bun run test:unit` |
-| Frontend lint / types | biome; `tsc` for app, unit and e2e code | `cd frontend && bun run lint && bun run typecheck` |
-| End-to-end | Playwright: login, items, settings, admin, plus RBAC flows per role (`tests/rbac.spec.ts`) | `cd frontend && bunx playwright test` |
-| Security (CI) | pip-audit, `bun audit` (production deps, high and above), gitleaks, CodeQL | `.github/workflows/security.yml` |
-| AI PR review (CI) | Claude reviews each pull request for authorization gaps, security issues and bugs, with inline comments | `.github/workflows/claude-pr-review.yml` (needs the `ANTHROPIC_API_KEY` repository secret; skipped without it) |
+## Design notes and limitations
 
-Backend tests need the `db` service. The template's test teardown **deletes every user and item**
-in the target database, which includes the seeded accounts. Either re-run the seed afterwards, or
-point the tests at a throwaway database:
-
-```bash
-docker compose exec db createdb -U postgres app_test
-export DATABASE_URL=postgresql://postgres:changethis@localhost:5432/app_test
-uv run alembic upgrade head && uv run bash scripts/tests-start.sh
-```
-
-Playwright needs the backend on :8000 with seeded users. Run `bunx playwright install chromium`
-once first. For a stable run, test the built app served by the backend (this is what CI does):
-`PLAYWRIGHT_BASE_URL=http://localhost:8000 bunx playwright test`, or inside Docker
-`docker compose run --rm playwright bunx playwright test`. Without `PLAYWRIGHT_BASE_URL` the
-config starts the Vite dev server on :5173. Its unbundled modules can occasionally exceed the 5 s
-assertion timeout when six workers run in parallel.
-
-`PERMISSION_MATRIX` in `backend/tests/api/test_authorization.py` is the executable form of the table
-below, written out by hand. `test_route_audit.py` fails if any non-public endpoint has no
-permission check.
-
-## Permission matrix
-
-| Permission | Endpoints | UI | admin | manager | member |
-|---|---|---|:-:|:-:|:-:|
-| `profile:read` | `GET /users/me`, `POST /login/test-token` | everywhere | ✓ | ✓ | ✓ |
-| `profile:update` | `PATCH /users/me`, `PATCH /users/me/password` | Settings → My profile, Password | ✓ | ✓ | ✓ |
-| `profile:delete` | `DELETE /users/me` | Settings → Danger zone | ✗¹ | ✓ | ✓ |
-| `items:use` | `/items/*` on your own items | Items | ✓ | ✓ | ✓ |
-| `items:manage_all` | `/items/*` on anyone's items | Items (sees all) | ✓ | ✗ | ✗ |
-| `users:list` | `GET /users/`, `GET /users/{id}` | Admin (read-only list) | ✓ | ✓ | ✗ |
-| `users:create` | `POST /users/` (including `role`) | Admin → Add User | ✓ | ✗ | ✗ |
-| `users:update` | `PATCH /users/{id}` (including `role`, `is_active`) | Admin → Edit user | ✓ | ✗ | ✗ |
-| `users:delete` | `DELETE /users/{id}` | Admin → Delete user | ✓ | ✗ | ✗ |
-| `metrics:view` | `GET /metrics/` | Metrics | ✓ | ✓ | ✗ |
-| `settings:manage` | `POST /utils/test-email/`, `POST /password-recovery-html-content/{email}` | System | ✓ | ✗ | ✗ |
-
-Public (no token): `POST /login/access-token`, `POST /password-recovery/{email}`,
-`POST /reset-password/`, `POST /users/signup`, `GET /utils/health-check/`, and the dev-only
-`POST /private/users/`.
-
-¹ Admins cannot delete their own account, and nobody can change their own role, deactivate or
-delete themselves through `/users/{id}` (403). The last user who manages users can therefore never
-lock everyone out.
-
-**Status codes:** `401` with `WWW-Authenticate: Bearer` is returned for a missing, malformed,
-expired or forged token, a deleted user, or an inactive user. `403` with
-`Missing permission: <permission>` is returned when you are authenticated but not allowed. `422`
-is returned when `role` (or any unknown field) is sent to `/users/signup` or `PATCH /users/me`.
-
-## How authorization works
-
-**Where checks live.** `backend/app/core/permissions.py` is the single policy: a `UserRole` enum,
-a namespaced `Permission` enum (`users:list`, `metrics:view`, …) and `ROLE_PERMISSIONS`, which
-maps each role to a frozenset of permissions. Each route declares what it needs with a FastAPI
-dependency, `dependencies=[Depends(require_permission(Permission.USERS_LIST))]` (see
-`backend/app/api/deps.py`); the items router declares it once at router level. No route compares
-role names. Data-scoped rules are small named helpers that still ask the policy:
-`get_accessible_item` (owner, or `items:manage_all`) and `ensure_not_self_lockout`. Every denial is
-logged at WARNING with `user_id`, `role`, `permission`, `method` and `path`, and no other personal
-data.
-
-**How roles are stored and validated.** `user.role` is a `VARCHAR(32)` column validated by the
-`UserRole` enum (default `member`), so a new role needs no schema migration. The JWT carries only
-`sub`; `get_current_user` reloads the user from the database on every request, so a demotion or
-deactivation takes effect on the next request with the same token. `role` can only be written
-through the admin endpoints (`users:create` and `users:update`). The self-service schemas
-(`UserRegister`, `UserUpdateMe`) use `extra="forbid"`, so a smuggled `role` field is rejected.
-
-**How the frontend learns capabilities.** `GET /users/me` returns the user's `role` and a computed
-`permissions` list, both derived on the backend. The generated OpenAPI client exposes `Permission`
-as typed runtime constants. The UI calls one helper, `hasPermission(user, Permission.X)`
-(`frontend/src/lib/permissions.ts`). It uses it to filter the sidebar, to show or hide controls,
-and in `beforeLoad` route guards that read the cached current user instead of refetching. The
-frontend has no role→permission map. A 401 logs the user out. A 403 never does: it shows an
-"Access denied" page inside the layout, with a way back, and refreshes `/users/me` in case the
-role changed.
+- [ADR 001](docs/adr/001-permission-map-and-dependency-factory.md): why a permission map and a
+  dependency factory, rather than inline checks, middleware or a policy engine.
+- [ADR 002](docs/adr/002-backend-supplied-capabilities.md): why the backend supplies capabilities
+  and the role comes from the database, not the JWT.
+- [NOTES.md](NOTES.md): decisions, trade-offs, time spent and what I'd do next.
 
 ```mermaid
 flowchart LR
@@ -182,100 +176,12 @@ flowchart LR
     RP -- yes --> H["Route handler<br/>(+ ownership / self-lockout helpers)"] --> OK["2xx"]
 ```
 
-## Adding a new role
+Main limitations, all inherited from the template: the token lives in `localStorage`, there are no
+refresh tokens or revocation, and login has no rate limit. Roles are fixed in code by design.
 
-1. Add a member to `UserRole` in `backend/app/core/permissions.py`.
-2. Add its entry to `ROLE_PERMISSIONS` in the same file.
+## Attribution and license
 
-That's all: no migration, no route changes, and no frontend changes (the UI reads permissions from
-`/users/me`). Then add the role's column to `PERMISSION_MATRIX` in
-`backend/tests/api/test_authorization.py` and to the table above, and regenerate the client
-(`bash scripts/generate-client.sh`) so the role appears in the admin role picker.
-
----
-
-## About the base template
-
-## Technology Stack and Features
-
-- ⚡ [**FastAPI**](https://fastapi.tiangolo.com) for the Python backend API.
-  - 🧰 [SQLModel](https://sqlmodel.tiangolo.com) for the Python SQL database interactions (ORM).
-  - 🔍 [Pydantic](https://docs.pydantic.dev), used by FastAPI, for the data validation and settings management.
-  - 💾 [PostgreSQL](https://www.postgresql.org) as the SQL database.
-- 🚀 [React](https://react.dev) for the frontend.
-  - 🧩 Built into the backend application and served by FastAPI on the same domain as the API.
-  - 💃 Using TypeScript, hooks, [Vite](https://vitejs.dev), and other parts of a modern frontend stack.
-  - 🎨 [Tailwind CSS](https://tailwindcss.com) and [shadcn/ui](https://ui.shadcn.com) for the frontend components.
-  - 🤖 An automatically generated frontend client.
-  - 🧪 [Playwright](https://playwright.dev) for end-to-end testing.
-  - 🦇 Dark mode support.
-- ☁️ [FastAPI Cloud](https://fastapicloud.com) for deployment.
-- 🐋 [Docker Compose](https://www.docker.com) for local services and self-hosted deployment.
-  - 📞 [Traefik](https://traefik.io) as a reverse proxy with automatic HTTPS.
-- 🔒 Secure password hashing by default.
-- 🔑 JWT (JSON Web Token) authentication.
-- 📫 Email-based password recovery.
-- ✉️ [React Email](https://react.email) for email templates.
-- 📬 [Mailpit](https://mailpit.axllent.org) for local email testing during development.
-- ✅ Tests with [Pytest](https://pytest.org).
-- 🏭 CI (continuous integration) and CD (continuous deployment) based on GitHub Actions.
-
-### Dashboard Login
-
-![Dashboard login screenshot](img/login.png)
-
-### Dashboard - Admin
-
-![Admin dashboard screenshot](img/dashboard.png)
-
-### Dashboard - Items
-
-![Items dashboard screenshot](img/dashboard-items.png)
-
-### Dashboard - Dark Mode
-
-![Dark mode dashboard screenshot](img/dashboard-dark.png)
-
-### React Email Templates
-
-![Email templates screenshot](img/react-email.png)
-
-### Mailpit - Local Email Testing
-
-![Mailpit screenshot](img/mailpit.png)
-
-### Interactive API Documentation
-
-![API docs](img/docs.png)
-
-## How to Use It
-
-Click the **Use this template** button at the top of this page to create a new repository.
-
-## Backend Development
-
-Backend docs: [backend/README.md](./backend/README.md).
-
-## Frontend Development
-
-Frontend docs: [frontend/README.md](./frontend/README.md).
-
-## Deployment
-
-FastAPI Cloud deployment: [deployment.md](./deployment.md).
-
-Self-hosted deployment with Docker Compose: [deployment-docker-compose.md](./deployment-docker-compose.md).
-
-## Development
-
-General development docs: [development.md](./development.md).
-
-This includes the local FastAPI and Vite workflow, Docker Compose services, `.env` configuration, and more.
-
-## Release Notes
-
-Check the file [release-notes.md](./release-notes.md).
-
-## License
-
-The Full Stack FastAPI Template is licensed under the terms of the MIT license.
+Built on the [Full Stack FastAPI Template](https://github.com/fastapi/full-stack-fastapi-template)
+by Sebastián Ramírez, under the MIT license (see [LICENSE](LICENSE)). The template's own guides are
+kept in [development.md](development.md), [deployment.md](deployment.md),
+[backend/README.md](backend/README.md) and [frontend/README.md](frontend/README.md).

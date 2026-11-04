@@ -2,6 +2,14 @@
 
 What I want a reviewer to know beyond the README and the ADRs.
 
+## Time spent
+
+The assignment suggests about one hour. This took about four hours of working time, and I built
+it with Claude Code as a coding assistant (see the `Co-Authored-By` trailers). The core RBAC work
+would fit a much shorter timebox. The rest went on things I chose to add beyond the brief:
+dependency updates, three test layers, CI workflows, a security pass and verifying from a clean
+clone.
+
 ## Decisions worth flagging
 
 - **Permissions, not roles, in code.** Routes and UI ask for a `Permission`;
@@ -64,37 +72,30 @@ What I want a reviewer to know beyond the README and the ADRs.
   recommends, so tests print `InsecureKeyLengthWarning`. Real deployments must
   set a long random key; the settings already refuse `changethis` outside
   development.
-- The backend test suite deletes all users and items when it finishes (template
-  `conftest.py`). Point it at a separate database (see README) or re-run the
-  seed afterwards.
 - The remaining `bun audit` advisories are in dev-only build tooling
   (openapi-ts YAML parser, react-email). The CI security job fails only on
   high or critical advisories in production dependencies.
-- **Diff size: about 56 hand-written files** (excluding the generated client,
-  lockfiles and `routeTree.gen.ts`), more than the "well under 50" target.
-  The extra comes from scope added on purpose: in-range dependency upgrades,
-  two CI workflows (security, frontend), frontend unit tests and a Playwright
-  RBAC suite. The RBAC core itself is about 30 files.
 
 ## Security review
 
-An independent review (live probes plus code reading), together with pip-audit, `bun audit`,
-gitleaks, zizmor, Bandit and Semgrep, found one High, one Medium and three Low issues
-introduced by this branch. All are fixed and covered by tests:
+I reviewed the branch for escalation paths and probed it against a running stack. Each fix below
+has a regression test:
 
-- **High:** the template's deploy workflow would have seeded the demo accounts (default password)
-  into production, because it reads the committed `.env`. Demo seeding is now opt-in
-  (`SEED_DEMO_USERS`, set only by the local compose override).
-- **Medium:** two admins demoting each other concurrently could leave zero admins. A row-locked
-  "at least one user manager remains" check now serialises them (409).
-- **Low:** an explicit `null` on a required field returned 500 (now 422); emails in URL paths
-  were written to the denial log (only the route template is logged now); production compose
-  deploys failed on the forwarded seed passwords.
-- **Also hardened:** JWTs must carry `exp` and a UUID `sub`. Before, a password-reset token gave a
-  500 and a token without `exp` was accepted. The admin password-recovery HTML preview sent an
-  invalid header name; pip-audit is pinned in CI.
+- **Demo accounts in production.** The template's deploy workflow reads the committed `.env`, so
+  it would have seeded the demo accounts. Demo seeding is now opt-in with `SEED_DEMO_USERS`, which
+  only the local Compose override sets (`test_demo_users_are_seeded_only_when_enabled`).
+- **Losing the last admin.** Two admins demoting each other at the same moment could leave none.
+  A row-locked check now refuses the second change with 409
+  (`test_concurrent_demotions_keep_one_user_manager`, which fails without the lock).
+- **Token handling.** Tokens must carry `exp` and a UUID `sub`. A password-reset token used as a
+  bearer token gave a 500, and a token without `exp` was accepted
+  (`test_invalid_credentials_are_401`).
+- **Smaller fixes.** An explicit `null` on a required field returned 500 and now returns 422.
+  Denial logs record the path template, so an email in a URL stays out of the logs.
 
-Known residuals, all from the template and out of scope here:
+CI runs pip-audit, `bun audit`, gitleaks and CodeQL on every pull request.
+
+Known residuals, out of scope here:
 
 - Password-reset tokens are not single-use, and no token is invalidated on password change.
 - Logging in with the correct password to a deactivated account returns "Inactive user", which
