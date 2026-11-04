@@ -54,4 +54,4 @@ Hetzner behaviour that the deletion guards depend on, such as name filters on th
 ## How it was built
 
 It was written with Claude Code. The real conversation, with secrets redacted, is in
-[docs/ai-conversation.md](docs/ai-conversation.md).
+[CHAT-HISTORY.md](CHAT-HISTORY.md): the full chat for Task 1 and Task 2, redacted.
