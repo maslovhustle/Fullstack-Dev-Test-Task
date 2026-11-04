@@ -103,7 +103,7 @@ test("A manager demoted mid-session sees access denied but stays logged in", asy
   })
   const admin = { Authorization: `Bearer ${(await login.json()).access_token}` }
   const email = randomEmail()
-  const password = `pw-${randomPassword()}`
+  const password = randomPassword()
   const created = await request.post(`${api}/users/`, {
     headers: admin,
     data: { email, password, role: "manager", is_active: true },
