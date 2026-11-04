@@ -6,6 +6,7 @@ locals {
     "/opt/ghost/compose.yml"                   = { source = "stack/compose.yml", mode = "0644" }
     "/opt/ghost/Caddyfile"                     = { source = "stack/Caddyfile", mode = "0644" }
     "/opt/ghost/bootstrap.sh"                  = { source = "stack/bootstrap.sh", mode = "0700" }
+    "/opt/ghost/owner.sh"                      = { source = "stack/owner.sh", mode = "0644" }
     "/usr/local/bin/ghost-backup"              = { source = "stack/ghost-backup.sh", mode = "0700" }
     "/usr/local/bin/ghost-restore"             = { source = "stack/ghost-restore.sh", mode = "0700" }
     "/etc/ssh/sshd_config.d/10-ghost.conf"     = { source = "stack/sshd.conf", mode = "0644" }
@@ -20,6 +21,15 @@ locals {
     "DATA_DIR=/mnt/ghost",
     "",
   ])
+
+  # Kept out of stack_revision on purpose: changing the owner's name or title
+  # must not rebuild the server. It only matters on the first boot.
+  owner_env = join("\n", [
+    "OWNER_EMAIL=${local.owner_email}",
+    "GHOST_TITLE=${var.ghost_title}",
+    "",
+  ])
+  owner_email = var.ghost_owner_email != "" ? var.ghost_owner_email : var.acme_email
 
   cloud_config = "#cloud-config\n${yamlencode({
     package_update = true
@@ -36,6 +46,12 @@ locals {
           path        = "/etc/ghost-deploy.env"
           encoding    = "b64"
           content     = base64encode(local.deploy_env)
+          permissions = "0600"
+        },
+        {
+          path        = "/etc/ghost-owner.env"
+          encoding    = "b64"
+          content     = base64encode(local.owner_env)
           permissions = "0600"
         },
         {

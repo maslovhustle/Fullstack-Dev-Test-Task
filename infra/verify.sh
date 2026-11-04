@@ -27,6 +27,18 @@ blog_is_up() { curl -fsS -o /dev/null --max-time 20 "https://$domain/"; }
 http_redirects() {
   [ "$(curl -s -o /dev/null --max-time 20 -w '%{http_code} %{redirect_url}' "http://$domain/")" = "308 https://$domain/" ]
 }
+owner_exists() {
+  curl -fsS --max-time 20 "https://$domain/ghost/api/admin/authentication/setup/" |
+    grep -q '"status":true'
+}
+hsts_is_set() {
+  curl -sI --max-time 20 "https://$domain/" | grep -qi '^strict-transport-security: max-age='
+}
+admin_api_refuses_anonymous() {
+  local code
+  code=$(curl -s -o /dev/null --max-time 20 -w '%{http_code}' "https://$domain/ghost/api/admin/users/")
+  [ "$code" = 401 ] || [ "$code" = 403 ]
+}
 firewall_is_web_only() {
   local rules
   rules=$(hcloud_get "firewalls/$firewall_id") || return 1
@@ -37,6 +49,9 @@ firewall_is_web_only() {
 echo "== Public side ($domain, $ip)"
 check "blog answers over HTTPS with a trusted certificate" blog_is_up
 check "HTTP redirects to HTTPS" http_redirects
+check "HTTPS responses send Strict-Transport-Security" hsts_is_set
+check "the Ghost admin API refuses anonymous requests" admin_api_refuses_anonymous
+check "the Ghost owner account exists" owner_exists
 check "Hetzner firewall allows only 80 and 443, and is applied" firewall_is_web_only
 for port in 22 2368 3306; do
   check "port $port is closed from the internet" port_is_closed "$port"
@@ -57,9 +72,5 @@ else
 fi
 
 echo
-if curl -fsS --max-time 20 "https://$domain/ghost/api/admin/authentication/setup/" |
-  jq -e '.setup[0].status == false' >/dev/null 2>&1; then
-  echo "WARNING: no owner account yet. Create it now at https://$domain/ghost"
-fi
 [ "$failures" -eq 0 ] || die "$failures check(s) failed."
 echo "All checks passed."

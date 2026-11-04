@@ -6,5 +6,5 @@
 tfplan
 .terraform/
 backups/
-.owner-password
 .tmp.*/
+.owner-password*

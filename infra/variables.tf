@@ -61,3 +61,15 @@ variable "protect_data" {
   type        = bool
   default     = true
 }
+
+variable "ghost_owner_email" {
+  description = "Login email for the Ghost owner account. Empty means acme_email."
+  type        = string
+  default     = ""
+}
+
+variable "ghost_title" {
+  description = "Blog title, set when the owner account is created."
+  type        = string
+  default     = "My Blog"
+}

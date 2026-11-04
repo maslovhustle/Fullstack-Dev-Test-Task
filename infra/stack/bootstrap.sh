@@ -8,6 +8,11 @@ set -a
 source /etc/ghost-deploy.env
 set +a
 auth_key_file=/etc/ghost-tailscale-auth-key
+# Read as plain text, not sourced: a blog title may contain spaces.
+OWNER_EMAIL=$(sed -n 's/^OWNER_EMAIL=//p' /etc/ghost-owner.env)
+GHOST_TITLE=$(sed -n 's/^GHOST_TITLE=//p' /etc/ghost-owner.env)
+GHOST_URL=${GHOST_URL:-https://$GHOST_DOMAIN}
+export GHOST_URL OWNER_EMAIL GHOST_TITLE
 
 echo "== Host firewall first, so nothing else is ever exposed"
 ufw default deny incoming
@@ -44,12 +49,17 @@ systemctl daemon-reload
 
 echo "== Generating secrets once; they live only on the volume"
 secrets_file="$DATA_DIR/secrets/stack.env"
+owner_file="$DATA_DIR/secrets/owner.env"
 if [ ! -f "$secrets_file" ]; then
   umask 077
   {
     echo "MYSQL_ROOT_PASSWORD=$(openssl rand -hex 32)"
     echo "MYSQL_PASSWORD=$(openssl rand -hex 32)"
   } > "$secrets_file"
+fi
+if [ ! -f "$owner_file" ]; then
+  umask 077
+  echo "OWNER_PASSWORD=$(openssl rand -base64 24 | tr -d '/+=\n')" > "$owner_file"
 fi
 
 echo "== Joining the tailnet"
@@ -80,7 +90,7 @@ elif [ "$state" != Running ]; then
 fi
 rm -f "$auth_key_file"
 
-echo "== Starting Ghost"
+echo "== Writing the stack command"
 cat > /usr/local/bin/ghost-compose <<SCRIPT
 #!/bin/sh
 exec docker compose --project-directory /opt/ghost -f /opt/ghost/compose.yml \
@@ -88,13 +98,34 @@ exec docker compose --project-directory /opt/ghost -f /opt/ghost/compose.yml \
 SCRIPT
 chmod 700 /usr/local/bin/ghost-compose
 systemctl enable --now docker
+
 # Pulling images can fail briefly, for example when Docker Hub limits shared IPs.
-for attempt in 1 2 3 4 5; do
-  ghost-compose up -d && break
-  [ "$attempt" -lt 5 ] || { echo "Could not start the stack"; exit 1; }
-  echo "Start failed (attempt $attempt); retrying"
-  sleep $((attempt * ${START_RETRY_DELAY:-20}))
-done
+compose_up() {
+  for attempt in 1 2 3 4 5; do
+    ghost-compose up -d "$@" && return 0
+    echo "Start failed (attempt $attempt); retrying"
+    sleep $((attempt * ${START_RETRY_DELAY:-20}))
+  done
+  echo "Could not start: $*"
+  return 1
+}
+
+echo "== Starting the database and Ghost, but not the public web server yet"
+compose_up db ghost
+
+echo "== Creating the owner account before the blog is reachable"
+# shellcheck source=/dev/null
+source /opt/ghost/owner.sh
+set -a
+# shellcheck source=/dev/null
+source "$owner_file"
+set +a
+export OWNER_COMPOSE=ghost-compose
+ghost_wait_ready
+ghost_create_owner_if_missing
+
+echo "== Starting Caddy: the blog becomes public only now"
+compose_up caddy
 
 systemctl enable --now ghost-backup.timer
 echo "== Bootstrap finished"
