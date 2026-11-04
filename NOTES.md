@@ -72,9 +72,10 @@ clone.
   recommends, so tests print `InsecureKeyLengthWarning`. Real deployments must
   set a long random key; the settings already refuse `changethis` outside
   development.
-- The remaining `bun audit` advisories are in dev-only build tooling
-  (openapi-ts YAML parser, react-email). The CI security job fails only on
-  high or critical advisories in production dependencies.
+- `js-yaml` is overridden to 4.3.2 in the root `package.json`, because the
+  OpenAPI client generator pins a vulnerable 4.1.1. The remaining `bun audit`
+  advisories are moderate or low, in dev-only tooling. CI fails on high or
+  critical ones.
 
 ## Security review
 
