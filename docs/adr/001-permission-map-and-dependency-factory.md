@@ -5,57 +5,40 @@
 
 ## Context
 
-The template had one boolean, `is_superuser`, checked inline in route bodies
-and in a `get_current_active_superuser` dependency. We need three roles
-(admin, manager, member) and a protected surface that will keep growing.
-The authorization model must be readable in five minutes, enforced the same
-way everywhere, and cheap to extend: adding a role should not mean touching
-ten files.
+The template had one boolean, `is_superuser`, checked inline in routes and in one dependency. We
+need three roles and a protected surface that will grow. The model must be readable in five
+minutes, enforced the same way everywhere, and cheap to extend.
 
 ## Options
 
-1. **Inline role checks** (`if user.role not in {"admin", "manager"}`) in each
-   route. Easy to start, but the policy ends up spread across handlers, every
-   new role means a grep-and-edit across the codebase, and a forgotten check
-   is invisible in review.
-2. **Middleware** keyed on URL patterns. Keeps routes clean, but couples the
-   policy to path strings, runs before FastAPI resolves the route, and cannot
-   see path parameters or the loaded user without duplicating work.
-3. **Policy engine** (Casbin, OPA/Rego, Oso). Powerful for attribute-based or
-   multi-tenant rules, but adds a dependency, a second language or config
-   format, and an operational surface that three static roles do not justify.
-4. **Permission map + dependency factory.** Routes declare *what* they need
-   (`Permission.USERS_LIST`). One module maps roles to permissions. One
-   dependency enforces it.
+1. **Inline role checks** in each route. Easy to start, but the policy spreads across handlers, a
+   new role means editing many files, and a forgotten check is invisible in review.
+2. **Middleware** keyed on URL patterns. Keeps routes clean, but ties the policy to path strings
+   and runs before FastAPI resolves the route and the user.
+3. **Policy engine** (Casbin, OPA, Oso). Powerful for attribute-based or multi-tenant rules, but
+   adds a dependency, another policy format and operational surface that three static roles do
+   not justify.
+4. **Permission map + dependency factory.** Routes declare what they need, one module maps roles
+   to permissions, and one dependency enforces it.
 
 ## Decision
 
 Option 4.
 
-- `app/core/permissions.py` holds `UserRole`, a namespaced `Permission`
-  StrEnum (`users:list`, `metrics:view`, …) and
-  `ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]]`. This is the only
-  place that knows which role can do what.
-- `require_permission(Permission.X)` in `app/api/deps.py` returns a small
-  callable `PermissionChecker`, attached as
-  `dependencies=[Depends(require_permission(...))]` on the route (or on the
-  router for items). It authenticates, checks, logs denials at WARNING and
-  raises 403.
-- Rules that depend on data rather than role (item ownership, "you cannot
-  demote yourself") are small named helpers (`get_accessible_item`,
-  `ensure_not_self_lockout`). Even they ask the policy (`ITEMS_MANAGE_ALL`)
-  instead of comparing role names.
-- A test walks the effective FastAPI routes and fails if a non-public endpoint
-  has no `PermissionChecker`, so "forgot the check" is a CI failure, not a
-  review comment.
+- `app/core/permissions.py` holds `UserRole`, a namespaced `Permission` enum (`users:list`,
+  `metrics:view`, …) and `ROLE_PERMISSIONS`. It is the only place that knows which role can do
+  what.
+- `require_permission(Permission.X)` in `app/api/deps.py` returns a small callable, attached as a
+  route or router dependency. It authenticates, checks, logs denials and raises 403.
+- Rules that depend on data rather than role (item ownership, self-lockout) are small named
+  helpers. They still ask the policy instead of comparing role names.
+- A test walks the effective routes and fails if a non-public endpoint has no permission check, so
+  a forgotten check fails CI instead of relying on review.
 
 ## Consequences
 
-- Adding a role = one enum member + one dict entry (no migration: the column
-  is a VARCHAR validated by the enum). Adding a permission = one enum member,
-  the roles that get it, and the routes that require it.
-- The matrix is explicit and testable; the README matrix is mirrored by a
-  parametrized test.
-- Role-based only: no per-tenant or attribute rules. If those appear, the
-  `has_permission(role, permission)` seam is where a policy engine would plug
-  in without touching routes.
+- Adding a role is one enum member and one dict entry, with no migration, because the column is a
+  VARCHAR validated by the enum.
+- The matrix is explicit, and a parametrized test mirrors the README table.
+- It is role-based only. If per-tenant or attribute rules appear, `has_permission(role,
+  permission)` is where a policy engine would plug in without touching routes.

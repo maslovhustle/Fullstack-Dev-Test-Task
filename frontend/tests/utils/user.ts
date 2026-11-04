@@ -13,7 +13,8 @@ export async function signUpNewUser(
   await page.getByTestId("password-input").fill(password)
   await page.getByTestId("confirm-password-input").fill(password)
   await page.getByRole("button", { name: "Sign Up" }).click()
-  await page.goto("/login")
+  // Leaving before the app redirects would cancel the signup request
+  await page.waitForURL("/login")
 }
 
 export async function logInUser(page: Page, email: string, password: string) {

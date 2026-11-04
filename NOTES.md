@@ -118,4 +118,3 @@ Known residuals, out of scope here:
   an audit log for privileged actions.
 - Per-resource policies (for example "managers can edit members, not admins")
   behind the same `has_permission` seam.
-- Run the backend tests against a dedicated database by default.

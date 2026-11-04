@@ -21,7 +21,7 @@ More screenshots: [manager metrics](docs/screenshots/manager-metrics.png),
 
 ## Quick start
 
-You need Docker with Compose v2.
+Docker with Compose v2 is all you need to run the application.
 
 ```bash
 docker compose up -d --build
@@ -109,6 +109,9 @@ entry. No migration or route changes are needed. Then regenerate the client
 matrix test and the table above.
 
 ## Tests and migrations
+
+Running tests directly on your machine needs [uv](https://docs.astral.sh/uv/) for the backend and
+[Bun](https://bun.sh) for the frontend. uv installs the required Python itself.
 
 Backend tests are safe to run at any time. They use a dedicated `<database>_test` database, created
 and migrated automatically, and refuse to run against anything else, so your demo data stays intact.

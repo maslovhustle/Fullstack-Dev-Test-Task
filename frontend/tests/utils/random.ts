@@ -1,8 +1,8 @@
-export const randomEmail = () =>
-  `test_${Math.random().toString(36).substring(7)}@example.com`
+const randomSuffix = () => crypto.randomUUID().slice(0, 8)
 
-export const randomTeamName = () =>
-  `Team ${Math.random().toString(36).substring(7)}`
+export const randomEmail = () => `test_${randomSuffix()}@example.com`
+
+export const randomTeamName = () => `Team ${randomSuffix()}`
 
 export const randomPassword = () => crypto.randomUUID()
 
@@ -12,8 +12,6 @@ export const slugify = (text: string) =>
     .replace(/\s+/g, "-")
     .replace(/[^\w-]+/g, "")
 
-export const randomItemTitle = () =>
-  `Item ${Math.random().toString(36).substring(7)}`
+export const randomItemTitle = () => `Item ${randomSuffix()}`
 
-export const randomItemDescription = () =>
-  `Description ${Math.random().toString(36).substring(7)}`
+export const randomItemDescription = () => `Description ${randomSuffix()}`

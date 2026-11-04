@@ -107,11 +107,19 @@ test("Logged-out user cannot access protected routes", async ({ page }) => {
 })
 
 test("Redirects to /login when token is wrong", async ({ page }) => {
-  await page.goto("/settings")
+  // Start from a settled page: a redirect still in progress would act on the
+  // token and its own 401 navigation would cancel the goto below.
+  await page.goto("/login")
+  await expect(page.getByTestId("email-input")).toBeVisible()
   await page.evaluate(() => {
     localStorage.setItem("access_token", "invalid_token")
   })
-  await page.goto("/settings")
+
+  // The app redirects as soon as the API answers 401, possibly before "load".
+  await page.goto("/settings", { waitUntil: "commit" })
+
   await page.waitForURL("/login")
   await expect(page).toHaveURL("/login")
+  const token = await page.evaluate(() => localStorage.getItem("access_token"))
+  expect(token).toBeNull()
 })
