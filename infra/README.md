@@ -1,7 +1,7 @@
-# Ghost on Hetzner with no public SSH
+# Ghost on Hetzner with no public SSH: the infrastructure
 
-One command provisions a Hetzner VPS and deploys a Ghost blog with HTTPS. SSH is not reachable
-from the internet at all: administration goes through a Tailscale tunnel.
+This folder provisions the server and deploys the blog. The [root README](../README.md) gives the
+overview.
 
 ```mermaid
 flowchart LR
@@ -40,11 +40,11 @@ cp .env.example .env
 | Variable | Where to get it |
 |---|---|
 | `HCLOUD_TOKEN` | Hetzner Console → your project → Security → API tokens, with Read & Write |
-| `TAILSCALE_AUTH_KEY` | Tailscale admin console → Settings → Keys → Generate auth key |
+| `TAILSCALE_AUTH_KEY` | Tailscale admin console → Settings → Keys → Generate auth key, one-off |
 | `ACME_EMAIL` | Your email, for Let's Encrypt notices |
 | `GHOST_DOMAIN` | Your domain, or leave it empty for a quick trial |
-| `SSH_PUBLIC_KEY_FILE` | Defaults to `~/.ssh/id_ed25519.pub` |
 | `GHOST_OWNER_EMAIL`, `GHOST_TITLE` | Optional. The owner's login email (default `ACME_EMAIL`) and the blog title |
+| `SSH_PUBLIC_KEY_FILE` | Defaults to `~/.ssh/id_ed25519.pub` |
 
 **Avoid a lockout.** Tailscale node keys expire after 180 days by default, and this server has no
 other way in. Either generate the auth key with a tag, which turns expiry off, or turn off key
@@ -72,12 +72,16 @@ but use your own domain for anything lasting.
 ./deploy.sh           # the same, then ask before creating anything
 ```
 
-Prices come live from the Hetzner API before anything is created. If the server type isn't sold in
-your location, the script stops and asks you to change it. It finishes by running `verify.sh`.
+Before anything is created, the script checks that Tailscale is running on your machine, that the
+Hetzner token works, and that no resources from an earlier deployment are left in the project
+without their state file. Prices come live from the Hetzner API. If the server type isn't sold in
+your location, the script stops and asks you to change it.
 
-The deploy also creates the Ghost owner account straight away, because Ghost gives the blog to
-whoever completes setup first. The generated password is saved in `.owner-password`, which Git
-ignores. Log in at `https://<your-domain>/ghost` and change it. Rerunning reuses the same file.
+**The owner account is created before the blog is public.** Ghost gives the blog to whoever
+completes its setup first. So the server starts only the database and Ghost, creates the owner from
+inside the stack, and starts Caddy last. Until then, nothing answers on ports 80 and 443, and the
+deploy waits for the blog to answer before it reports success. The generated password is saved to
+`infra/.owner-password` (ignored by Git). Log in at `https://<your-domain>/ghost` and change it.
 
 Running `./deploy.sh` again is safe. With no changes it does nothing. Changing the stack or domain
 rebuilds the server, which causes a few minutes of downtime and keeps all data. A new
@@ -95,28 +99,62 @@ On the server, `ghost-compose` wraps Docker Compose, for example `ghost-compose 
 Public port 22 is blocked twice: the Hetzner firewall allows only 80 and 443, and the host firewall
 allows SSH only on `tailscale0`. SSH accepts keys only.
 
+## Public routes
+
+Everything on the public side, with the status each route returns anonymously (checked against the
+real Ghost and Caddy images by `tests/test-local.sh`):
+
+| Route | Status | Why it is reachable |
+|---|---|---|
+| `https://<domain>/` and posts | 200 | The blog |
+| `/ghost/` | 200 | Ghost's admin login page, the normal way to log in |
+| `/ghost/api/admin/users/` | 403 | The admin API refuses anonymous requests |
+| `/ghost/api/admin/site/` | 200 | Ghost's public site information: the blog title and the Ghost version. It is open in Ghost by design, so the version is visible to anyone. |
+| `/ghost/api/admin/authentication/setup/` | 200 | Reports whether the owner exists. Once it does, it accepts no new owner. |
+| `/rss/`, `/sitemap.xml`, `/robots.txt` | 200 | Standard blog endpoints |
+| HTTP on port 80 | 308 | Redirects to HTTPS |
+| Any other port (22, 2368, 3306, 2019, …) | closed | The Hetzner firewall allows only 80 and 443 |
+
+Things that are **not** reachable from the internet: Ghost itself on port 2368, MySQL on 3306,
+Caddy's admin API on 2019, and SSH. Only Caddy publishes a port from the stack. Docker publishes
+ports through its own firewall rules, which bypass `ufw`, so a new published port would be exposed
+even with `ufw` in place. The test fails if any other service publishes a port.
+
+The admin login at `/ghost/` is public on purpose, so the owner can reach it from any browser. If
+you want it only through the tunnel, Caddy can restrict `/ghost*` to Tailscale addresses. That is a
+one-line change, but it also makes the admin unreachable from other devices.
+
 ## Verify
 
 ```bash
 ./verify.sh
 ```
 
-It checks that the blog is served over trusted HTTPS, HTTP redirects, the firewall has only the two
-web rules, and ports 22, 2368 and 3306 are closed from the internet. It also checks that SSH works
-through the tunnel, the volume is mounted, and all containers and the backup timer are running.
+It checks, from the internet: that the blog answers over HTTPS with a trusted certificate, that HTTP
+redirects, that HTTPS sends `Strict-Transport-Security`, that the admin API refuses anonymous
+requests, that the owner account exists, that the Hetzner firewall allows only 80 and 443 and is
+applied to the server, and that ports 22, 2368 and 3306 are closed. Through the tunnel, it checks
+that SSH works, that password login is off, that the host firewall limits SSH to `tailscale0`, that
+the volume is mounted, that the containers are running and that the backup timer is active.
 
-## Troubleshooting
+## When the server can be deleted
 
-- **`verify.sh` says the server is not in your tailnet.** Check that Tailscale is running on your
-  machine. If the node never joined, the auth key was probably invalid, expired or already used.
-  Put a new one in `.env`, then run `./destroy.sh` followed by `./deploy.sh`. That recreates only
-  the server, keeps your data and IP, and joins the tailnet with the new key.
-- **The blog does not come up.** Through the tunnel, run `tail -f /var/log/ghost-bootstrap.log`
-  and `ghost-compose ps`. The setup script is safe to run again: `/opt/ghost/bootstrap.sh`.
-- **No certificate yet.** With your own domain, check that the `A` record points to the printed
-  IP. Caddy retries by itself, so `ghost-compose logs caddy` shows the reason.
-- **No way in at all.** In the Hetzner Console, open the server and reset its root password, then
-  log in on the web console. That is a last resort, and the steps above should make it unnecessary.
+The server is the only thing that can be removed cheaply and is easy to remove by mistake, so each
+path to deletion has a guard:
+
+| Path | What happens |
+|---|---|
+| `./destroy.sh` | Stops Ghost cleanly, lifts delete protection on the server, and removes the server and firewall. The volume and IP stay and keep billing. |
+| `./destroy.sh --delete-data` | Asks you to type the server name, then removes everything, including backups on the volume. |
+| `./deploy.sh` with a changed setting that forces a new server (`SERVER_NAME`, `LOCATION`, or the stack itself) | The plan shows that the server is replaced. You must type `replace server`. `--yes` refuses it. |
+| Any plan that would delete the volume or the IP | Refused before anything changes. |
+| Deleting the server in the Hetzner console | Blocked. The server has Hetzner delete protection. |
+| Deleting the Hetzner resources while the local state file is missing | Refused. The deploy finds resources with the same names and stops, because creating new ones would double the cost. |
+| Losing the Tailscale key | Not a deletion. The server keeps running, but you can't reach it. Use the Hetzner web console. |
+
+The Tailscale and Hetzner state would be the next thing to protect. `terraform.tfstate` is local, is
+ignored by Git, and contains the Tailscale key. Back it up somewhere safe; without it, the deploy
+refuses to create anything that already exists.
 
 ## Backups
 
@@ -144,13 +182,31 @@ ssh root@<tailscale-ip> ghost-restore /tmp/ghost-<timestamp>.tar.gz
 
 After a full cleanup, remove the node from the Tailscale admin console too.
 
+## Troubleshooting
+
+- **`verify.sh` says the server is not in your tailnet.** Check that Tailscale is running on your
+  machine. If the node never joined, the auth key was probably invalid, expired or already used.
+  Put a new one in `.env`, then run `./destroy.sh` followed by `./deploy.sh`. That recreates only
+  the server, keeps your data and IP, and joins the tailnet with the new key.
+- **The blog does not come up.** Through the tunnel, run `tail -f /var/log/ghost-bootstrap.log`
+  and `ghost-compose ps`. The setup script is safe to run again: `/opt/ghost/bootstrap.sh`.
+- **No certificate yet.** With your own domain, check that the `A` record points to the printed
+  IP. Caddy retries by itself, so `ghost-compose logs caddy` shows the reason.
+- **The owner password file is missing.** Run `./deploy.sh` again once the tunnel is up. It only
+  fetches the password; it creates nothing.
+- **No way in at all.** In the Hetzner Console, open the server and reset its root password, then
+  log in on the web console. That is a last resort, and the steps above should make it unnecessary.
+
 ## Secrets
 
-- `.env` and the OpenTofu state are ignored by Git. The state contains the Tailscale auth key, so
-  treat it as a secret.
-- Database passwords are generated on the server and stored only on the volume.
-- The auth key is deleted from the disk after use, but it remains in the server's Hetzner metadata.
-  A one-off key with a short expiry makes that harmless.
+- `.env`, the OpenTofu state, `.owner-password` and backups are ignored by Git. The state contains
+  the Tailscale auth key, so treat it as a secret.
+- Database passwords and the owner password are generated on the server and stored only on the
+  volume, in `secrets/` with mode 600. `.owner-password` on your machine is a copy of the owner one.
+- The Tailscale auth key is deleted from the disk after use, but it remains in the server's Hetzner
+  metadata. A one-off key with a short expiry makes that harmless.
+- The owner password is passed to Ghost's setup as a command argument, so it is briefly visible in
+  the process list on the server. Only root can see it, and the window is a few seconds.
 
 ## Limitations
 
@@ -165,9 +221,21 @@ After a full cleanup, remove the node from the Tailscale admin console too.
 tests/test-local.sh
 ```
 
-This needs Docker and jq, with no cloud account and no cost. It checks the scripts, OpenTofu config
-and cloud-init schema, and runs the real `sshd` and `ufw` with this project's settings to confirm
-that SSH is limited to the tunnel. It runs the server setup script against stubbed system
-commands, twice, including a failed first start. It also runs real Ghost, MySQL and Caddy
-containers to test HTTPS, owner creation, persistence, and backup and restore. CI runs it for
-changes in this folder.
+This needs Docker and jq, with no cloud account and no cost. It checks:
+
+- ShellCheck, OpenTofu format, validation and a full plan, and the cloud-init schema.
+- The deletion guards, run on plan files of each shape: a protection-only change is allowed, a
+  server type change or replacement is refused, and a volume or IP deletion is detected.
+- The real `sshd` and `ufw` with this project's settings, so SSH is limited to keys and the tunnel.
+- The first-boot script, run twice against stubbed system commands. It covers a failed start, a
+  rebuild with a spent auth key, and that Caddy starts only after the owner exists.
+- Real Ghost, MySQL and Caddy containers: the blog is unreachable before the owner exists, HTTPS and
+  its headers work afterwards, the public routes behave as listed above, only Caddy publishes ports,
+  running the owner setup again creates no second owner, data survives restarts, and a backup
+  restores onto an empty server with its owner.
+
+CI runs it for changes in this folder.
+
+**Not tested here:** anything that needs a real Hetzner account or a real Tailscale network. That
+includes cloud-init timing on Ubuntu, the volume attaching, Tailscale joining, the live checks in
+`verify.sh`, and the Hetzner API behaviour the deletion guards depend on.

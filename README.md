@@ -24,7 +24,11 @@ credentials, domain and DNS setup, deployment, tunnel access, backups, cleanup a
 
 **This creates billable resources** (a server, a volume and a fixed IPv4 address). `./deploy.sh`
 prints the monthly prices it reads from the Hetzner API before it asks, and `./destroy.sh` removes
-them.
+the server (the volume and IP are kept, and keep billing, until `--delete-data`).
+
+**Ghost is not public until its owner exists.** The server creates the owner account from inside the
+stack before Caddy starts, so no visitor can claim the blog first. Details, and every way the server
+can be deleted, are in [infra/README.md](infra/README.md).
 
 ## What has been verified
 
@@ -34,13 +38,18 @@ Everything that needs no cloud account runs in CI, and locally with `infra/tests
 - ShellCheck, OpenTofu format, validation and a full plan, and the cloud-init schema.
 - The real `sshd` and `ufw` with this project's settings: SSH accepts keys only, and the firewall
   allows 80, 443 and SSH on the tunnel interface alone. Breaking either setting makes the test fail.
-- The first-boot script run twice against stubbed system commands, including a failed start.
-- Real Ghost, MySQL and Caddy containers: HTTPS, redirect, only Caddy publishing ports, creating the
-  owner account, surviving a restart, and backup and restore onto an empty server.
+- The deletion guards, run on plan files of each shape: a server replacement or a volume deletion
+  is refused unless it is confirmed, and destroy never touches the volume or the IP.
+- The first-boot script run twice against stubbed system commands, including a failed start, and a
+  check that Caddy starts only after the owner exists.
+- Real Ghost, MySQL and Caddy containers: the blog is unreachable before the owner exists, then
+  HTTPS, redirect and security headers work; only Caddy publishes ports; the admin API refuses
+  anonymous requests; surviving a restart; and backup and restore onto an empty server.
 
 **Not yet verified against a real Hetzner account.** The live checks in `infra/verify.sh` (the blog
 answers over trusted HTTPS, ports 22, 2368 and 3306 are closed from the internet, and SSH works
-through the tunnel) run at the end of every real deploy. They have not been run yet.
+through the tunnel) run at the end of every real deploy. They have not been run yet. Neither has the
+Hetzner behaviour that the deletion guards depend on, such as name filters on the API.
 
 ## How it was built
 
