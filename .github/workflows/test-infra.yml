@@ -1,0 +1,27 @@
+name: Test Infra
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - infra/**
+      - .github/workflows/test-infra.yml
+  pull_request:
+    paths:
+      - infra/**
+      - .github/workflows/test-infra.yml
+
+permissions:
+  contents: read
+
+jobs:
+  test-ghost-infra:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Validate without any cloud account
+        run: bash infra/tests/test-local.sh
