@@ -5,7 +5,7 @@
 [![Playwright Tests](../../actions/workflows/playwright.yml/badge.svg)](../../actions/workflows/playwright.yml)
 [![Security](../../actions/workflows/security.yml/badge.svg)](../../actions/workflows/security.yml)
 
-This is my solution to a full-stack test assignment: add RBAC to the
+This is my solution to a [full-stack test assignment](docs/ASSIGNMENT.md): add RBAC to the
 [Full Stack FastAPI Template](https://github.com/fastapi/full-stack-fastapi-template).
 There are three roles, **admin**, **manager** and **member**. One policy file decides what each
 role may do. The API enforces it on every route, and the UI renders from the permissions the API

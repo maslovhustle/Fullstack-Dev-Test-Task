@@ -3,7 +3,7 @@ name: Security
 on:
   push:
     branches:
-      - master
+      - main
   pull_request:
   schedule:
     # Weekly, to catch newly published advisories for unchanged lockfiles
